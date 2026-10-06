@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+/* Réglages tactiles globaux (mobile) */
+html, body {
+  margin: 0;
+  background: #0A101C;
+  overscroll-behavior-y: none;          /* pas de "pull-to-refresh" accidentel */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+button { touch-action: manipulation; -webkit-user-select: none; user-select: none; }
