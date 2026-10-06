@@ -13,10 +13,24 @@ export const VARIANTS = [
 ];
 
 /**
- * Bonus qui exigent d'avoir gagné au moins un pli : captures, 14 et mise du Flambeur (pouvoir de pirate).
+ * Ce qui exige d'avoir gagné au moins un pli : captures, 14 et pouvoirs de pirate (mise du Flambeur, pari modifié par Harry).
  * L'alliance Butin n'en fait pas partie : celui qui pose le Butin s'allie au gagnant du pli, il peut donc n'en avoir aucun.
  */
-export const TRICK_BONUS = { b14c: 0, b14n: false, mermaid: 0, pirate: 0, skc: false, wager: 0 };
+export const TRICK_BONUS = { b14c: 0, b14n: false, mermaid: 0, pirate: 0, skc: false, wager: 0, harry: null };
+
+/** Plis perdus de la manche (extension Léviathans) : une seule carte de chaque, donc au plus 1 pli chacun. */
+export const NO_LOSS = { kraken: false, whale: false };
+
+/**
+ * Harry le Géant : `harry` vaut null si le joueur n'a pas la carte, sinon −1, 0 ou +1 (ajustement choisi).
+ * Pari retenu pour le score : la mise ajustée de ±1 après le dernier pli.
+ */
+export const effectiveBet = (e, cards) => Math.min(cards, Math.max(0, e.bet + (e.harry ?? 0)));
+export const hasHarry = (e) => e.harry != null;
+
+/** Carte unique : donner Harry à un joueur (valeur −1/0/+1) la retire à tous les autres ; null la rend. */
+export const assignHarry = (entries, pid, value) =>
+  Object.fromEntries(Object.entries(entries).map(([id, e]) => [id, { ...e, harry: id === pid ? value : null }]));
 export const newEntry = () => ({ bet: 0, tricks: 0, ...TRICK_BONUS, loot: 0, cannon: false });
 export const freshEntries = (players) => Object.fromEntries(players.map((p) => [p.id, newEntry()]));
 
@@ -33,14 +47,19 @@ export const rawBonus = (e, st) =>
   (e.tricks > 0 ? e.b14c * 10 + (e.b14n ? 20 : 0) + e.mermaid * 20 + e.pirate * 30 + (e.skc ? 40 : 0) : 0) +
   (st.loot ? e.loot * 20 : 0);
 
-/** Tous les plis sont attribués (le Kraken peut en détruire, d'où ≤ avec les Léviathans). */
-export function tricksComplete(entries, players, cards, settings) {
+/** Nombre de plis à attribuer : les cartes, moins le pli détruit par le Kraken et celui défaussé par la Baleine blanche. */
+export const expectedTricks = (cards, settings, lost = NO_LOSS) =>
+  cards - (settings.leviathans ? Number(!!lost.kraken) + Number(!!lost.whale) : 0);
+
+/** Tous les plis attribués : somme des plis = plis effectivement remportés. */
+export function tricksComplete(entries, players, cards, settings, lost = NO_LOSS) {
   const sum = players.reduce((a, p) => a + (entries[p.id]?.tricks ?? 0), 0);
-  return settings.leviathans ? sum <= cards : sum === cards;
+  return sum === expectedTricks(cards, settings, lost);
 }
 
 /** Barème officiel : Skull King (classique) ou Rascal (Chevrotine ou Boulet de canon, choisi par joueur à chaque manche) + mise du Flambeur. */
-export function scoreEntry(e, cards, st) {
+export function scoreEntry(entry, cards, st) {
+  const e = st.powers ? { ...entry, bet: effectiveBet(entry, cards) } : entry;
   const diff = Math.abs(e.bet - e.tricks);
   const raw = rawBonus(e, st);
   let base = 0, bonus = 0, label = "", tone = "miss";
@@ -64,5 +83,5 @@ export function scoreEntry(e, cards, st) {
     label = `Raté de ${diff}`;
   }
   const wager = st.powers && e.wager && e.tricks > 0 ? (diff === 0 ? e.wager : -e.wager) : 0;
-  return { base, bonus, raw, wager, total: base + bonus + wager, hit: diff === 0, diff, label, tone };
+  return { bet: e.bet, base, bonus, raw, wager, total: base + bonus + wager, hit: diff === 0, diff, label, tone };
 }

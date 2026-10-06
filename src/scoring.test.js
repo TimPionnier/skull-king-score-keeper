@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { newEntry, rawBonus, roundSequence, scoreEntry, tricksComplete } from "./scoring.js";
+import { assignHarry, expectedTricks, hasHarry, newEntry, rawBonus, roundSequence, scoreEntry, tricksComplete } from "./scoring.js";
 
 const SK = { scoring: "sk", variant: "classic", loot: false, leviathans: false, powers: false };
 const RASCAL = { ...SK, scoring: "rascal" };
@@ -73,6 +73,32 @@ describe("Mise du Flambeur (pouvoirs, p.26)", () => {
   });
 });
 
+describe("Harry le Géant (pouvoirs, p.26) : pari ±1 après le dernier pli", () => {
+  const P = { ...SK, powers: true };
+  it("transforme un pari raté en pari réussi", () => {
+    expect(total({ bet: 2, tricks: 3 }, 5, P)).toBe(-10);
+    expect(total({ bet: 2, tricks: 3, harry: 1 }, 5, P)).toBe(60);
+    expect(total({ bet: 1, tricks: 0, harry: -1 }, 5, P)).toBe(50); // devient un zéro tenu
+  });
+  it("le pari modifié reste borné entre 0 et le nombre de cartes", () => {
+    expect(scoreEntry(e({ bet: 0, tricks: 1, harry: -1 }), 5, P).bet).toBe(0);
+    expect(scoreEntry(e({ bet: 5, tricks: 5, harry: 1 }), 5, P).bet).toBe(5);
+  });
+  it("carte unique : un seul détenteur à la fois", () => {
+    let en = { a: e({ tricks: 1 }), b: e({ tricks: 1 }), c: e({ tricks: 1 }) };
+    expect(Object.values(en).filter(hasHarry)).toHaveLength(0);
+    en = assignHarry(en, "a", 1);
+    en = assignHarry(en, "b", 0);
+    expect(Object.keys(en).filter((id) => hasHarry(en[id]))).toEqual(["b"]);
+    expect(en.a.harry).toBeNull();
+    en = assignHarry(en, "b", null);
+    expect(Object.values(en).filter(hasHarry)).toHaveLength(0);
+  });
+  it("sans l'extension Pouvoirs, Harry est ignoré", () => {
+    expect(total({ bet: 2, tricks: 3, harry: 1 }, 5)).toBe(-10);
+  });
+});
+
 describe("Décompte Rascal (p.18-20)", () => {
   it("Chevrotine : coup direct / frappe à revers / échec cuisant (exemple B, 4 cartes → 40 / 20 / 0)", () => {
     expect(total({ bet: 1, tricks: 1 }, 4, RASCAL)).toBe(40);
@@ -96,8 +122,23 @@ describe("Cohérence de manche", () => {
     expect(tricksComplete(en(1, 1, 0), players, 3, SK)).toBe(false);
     expect(tricksComplete(en(2, 1, 1), players, 3, SK)).toBe(false);
   });
-  it("avec le Kraken, un pli peut être détruit (somme ≤ cartes)", () => {
-    expect(tricksComplete(en(1, 1, 0), players, 3, { ...SK, leviathans: true })).toBe(true);
+  const LEV = { ...SK, leviathans: true };
+  it("Léviathans : sans Kraken ni Baleine jouée, tous les plis doivent être attribués", () => {
+    expect(tricksComplete(en(1, 1, 0), players, 3, LEV)).toBe(false);
+    expect(tricksComplete(en(1, 1, 1), players, 3, LEV)).toBe(true);
+  });
+  it("Kraken joué : exactement 1 pli détruit, pas davantage", () => {
+    const k = { kraken: true, whale: false };
+    expect(expectedTricks(3, LEV, k)).toBe(2);
+    expect(tricksComplete(en(1, 1, 0), players, 3, LEV, k)).toBe(true);
+    expect(tricksComplete(en(1, 0, 0), players, 3, LEV, k)).toBe(false);
+    expect(tricksComplete(en(1, 1, 1), players, 3, LEV, k)).toBe(false);
+  });
+  it("Kraken + Baleine blanche (pli de cartes spéciales défaussé) : 2 plis perdus", () => {
+    expect(tricksComplete(en(1, 0, 0), players, 3, LEV, { kraken: true, whale: true })).toBe(true);
+  });
+  it("Kraken ignoré si l'extension n'est pas active", () => {
+    expect(expectedTricks(3, SK, { kraken: true, whale: false })).toBe(3);
   });
   it("partie classique : 10 manches de 1 à 10 cartes ; plafond de pioche à 8 joueurs", () => {
     expect(roundSequence(SK, 3)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);

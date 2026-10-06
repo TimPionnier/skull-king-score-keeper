@@ -12,9 +12,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useDragControls } from "framer-motion";
 import {
   Anchor, BarChart3, Check, ChevronDown, ChevronLeft, Coins, Compass, Crown, Flame, Gem, Ghost as GhostIcon,
-  Lock, Minus, Plus, RotateCcw, Ship, Skull, SlidersHorizontal, Sparkles, Swords, Target, UserPlus, Waves, X, Fish, Bird, Layers, Palette, Bomb,
+  BicepsFlexed, Lock, Minus, Plus, RotateCcw, Ship, Skull, SlidersHorizontal, Sparkles, Swords, Target, UserPlus, Waves, X, Fish, Bird, Layers, Palette, Bomb,
 } from "lucide-react";
-import { VARIANTS, TRICK_BONUS, freshEntries, roundSequence, scoreEntry, tricksComplete } from "./scoring.js";
+import { VARIANTS, TRICK_BONUS, NO_LOSS, assignHarry, hasHarry, freshEntries, roundSequence, scoreEntry, tricksComplete, expectedTricks } from "./scoring.js";
 
 /* ═══════════════════════ Données & règles ═══════════════════════ */
 
@@ -238,6 +238,7 @@ export default function SkullKingApp() {
   const [rounds, setRounds] = useState(saved?.rounds ?? []);
   const [phase, setPhase] = useState(saved?.phase ?? "bet");
   const [entries, setEntries] = useState(() => saved?.entries ?? freshEntries(players));
+  const [lost, setLost] = useState(saved?.lost ?? NO_LOSS); // Kraken / Baleine blanche joués cette manche
   const [gameActive, setGameActive] = useState(saved?.gameActive ?? false);
   const [finished, setFinished] = useState(saved?.finished ?? false);
   const [bonusFor, setBonusFor] = useState(null);
@@ -250,8 +251,8 @@ export default function SkullKingApp() {
 
   // Sauvegarde automatique
   useEffect(() => {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, screen, players, settings, rounds, phase, entries, gameActive, finished })); } catch { /* stockage indisponible */ }
-  }, [screen, players, settings, rounds, phase, entries, gameActive, finished]);
+    try { localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, screen, players, settings, rounds, phase, entries, lost, gameActive, finished })); } catch { /* stockage indisponible */ }
+  }, [screen, players, settings, rounds, phase, entries, lost, gameActive, finished]);
 
   // Garder l'écran allumé pendant la partie
   useEffect(() => {
@@ -312,12 +313,13 @@ export default function SkullKingApp() {
     clearTimers();
     const named = players.map((p, i) => ({ ...p, name: p.name.trim() || `Pirate ${i + 1}` }));
     setPlayers(named);
-    setRounds([]); setPhase("bet"); setEntries(freshEntries(named)); setBonusFor(null);
+    setRounds([]); setPhase("bet"); setEntries(freshEntries(named)); setLost(NO_LOSS); setBonusFor(null);
     setTransition(null); setFinished(false); setGameActive(true);
     setScreen("game");
     startYoHo();
   };
   const setEntry = (pid, patch) => setEntries((en) => ({ ...en, [pid]: { ...en[pid], ...patch } }));
+  const setHarry = (pid, harry) => setEntries((en) => assignHarry(en, pid, harry));
 
   // Début de manche : Yo-Ho-Ho ! puis saisie des paris (la phase reste « bet »).
   const startYoHo = () => {
@@ -329,18 +331,18 @@ export default function SkullKingApp() {
   const finishCountdown = () => { clearTimers(); setCountdown(0); };
 
   const validateRound = () => {
-    if (!tricksComplete(entries, players, cards, settings)) return;
+    if (!tricksComplete(entries, players, cards, settings, lost)) return;
     const last = roundIndex + 1 >= seq.length;
     buzz(25);
-    setRounds((rs) => [...rs, { cards, entries }]);
-    setEntries(freshEntries(players)); setBonusFor(null); setPhase("bet");
+    setRounds((rs) => [...rs, { cards, entries, lost }]);
+    setEntries(freshEntries(players)); setLost(NO_LOSS); setBonusFor(null); setPhase("bet");
     setTransition({ last }); setFinished(last); setGameActive(!last);
   };
   const undoRound = () => {
     const prev = rounds[rounds.length - 1];
     if (!prev) return;
     setRounds((rs) => rs.slice(0, -1));
-    setEntries(prev.entries); setPhase("tricks"); setTransition(null); setFinished(false); setGameActive(true);
+    setEntries(prev.entries); setLost(prev.lost ?? NO_LOSS); setPhase("tricks"); setTransition(null); setFinished(false); setGameActive(true);
   };
   const closeTransition = () => {
     if (!transition) return;
@@ -363,7 +365,7 @@ export default function SkullKingApp() {
         )}
         {screen === "game" && (
           <GameScreen key="game"
-            {...{ players, settings, seq, idx, cards, roundIndex, phase, setPhase, entries, setEntry, totals, rankOf, validateRound }}
+            {...{ players, settings, seq, idx, cards, roundIndex, phase, setPhase, entries, setEntry, setHarry, lost, setLost, totals, rankOf, validateRound }}
             onBonus={setBonusFor} onBoard={() => setScreen("board")} onSetup={() => setScreen("setup")} />
         )}
         {screen === "board" && (
@@ -404,8 +406,8 @@ function SetupScreen({ players, settings, seq, canResume, crewChangedDuringGame,
   const capped = variant.seq.some((c, i) => c !== seq[i]);
   const ext = [
     { key: "loot", title: "Cartes Butin", desc: "Alliance : +20 chacun si les deux réussissent.", Icon: Coins, accent: "#F2B544" },
-    { key: "leviathans", title: "Kraken & Baleine", desc: "Un pli peut être détruit.", Icon: Waves, accent: "#2DD4BF" },
-    { key: "powers", title: "Pouvoirs des pirates", desc: "Mise de Rascal le Flambeur : 0, 10 ou 20.", Icon: Flame, accent: "#E05168" },
+    { key: "leviathans", title: "Kraken & Baleine", desc: "Kraken : 1 pli détruit · Baleine : 1 pli défaussé.", Icon: Waves, accent: "#2DD4BF" },
+    { key: "powers", title: "Pouvoirs des pirates", desc: "Flambeur : mise 0, 10 ou 20 · Harry : pari ±1.", Icon: Flame, accent: "#E05168" },
   ];
   const editP = players.find((p) => p.id === editing);
 
@@ -579,19 +581,20 @@ function SetupScreen({ players, settings, seq, canResume, crewChangedDuringGame,
 
 /* ═══════════════════════ 2. Jeu (saisie par manche) ═══════════════════════ */
 
-function GameScreen({ players, settings, seq, idx, cards, roundIndex, phase, setPhase, entries, setEntry, totals, rankOf, validateRound, onBonus, onBoard, onSetup }) {
+function GameScreen({ players, settings, seq, idx, cards, roundIndex, phase, setPhase, entries, setEntry, setHarry, lost, setLost, totals, rankOf, validateRound, onBonus, onBoard, onSetup }) {
   const n = players.length;
   const isRascal = settings.scoring === "rascal";
   const dealerIdx = idx % n, starterIdx = (idx + 1) % n;
   const betSum = players.reduce((a, p) => a + entries[p.id].bet, 0);
   const trickSum = players.reduce((a, p) => a + entries[p.id].tricks, 0);
-  const trickOk = tricksComplete(entries, players, cards, settings);
-  const free = cards - trickSum;
+  const target = expectedTricks(cards, settings, lost); // plis réellement remportés (hors Kraken / Baleine)
+  const trickOk = tricksComplete(entries, players, cards, settings, lost);
+  const free = target - trickSum;
 
   const mood = betSum > cards ? ["Ça va saigner", "bg-[#3A1420] text-[#FF9AAA]"]
     : betSum < cards ? ["Plis orphelins", "bg-[#0D2423] text-[#5EEAD4]"] : ["Équilibre parfait", "bg-[#2A2112] text-[#FCE7B8]"];
-  const sumColor = trickSum > cards ? "#FF7A8E" : trickOk ? "#2DD4BF" : "#F2B544";
-  const validateLabel = trickSum > cards ? `${trickSum - cards} pli${trickSum - cards > 1 ? "s" : ""} en trop`
+  const sumColor = trickSum > target ? "#FF7A8E" : trickOk ? "#2DD4BF" : "#F2B544";
+  const validateLabel = trickSum > target ? `${trickSum - target} pli${trickSum - target > 1 ? "s" : ""} en trop`
     : trickOk ? "Valider la manche" : `Encore ${free} pli${free > 1 ? "s" : ""} à attribuer`;
 
   return (
@@ -672,17 +675,26 @@ function GameScreen({ players, settings, seq, idx, cards, roundIndex, phase, set
           <motion.div key={`tricks-${idx}`} {...phaseSlide(1)} className="flex flex-col gap-2.5 pt-3.5">
             <div className="flex flex-col gap-1.5 px-1">
               <div className="flex items-center justify-between">
-                <span className="text-[15px] font-semibold tabular-nums">Plis : <b className="text-lg" style={{ color: sumColor }}>{trickSum}</b> <span className="text-[#94A0B8]">/ {cards}</span></span>
-                {settings.leviathans && free > 0 && <span className="text-[12.5px] font-semibold text-[#5EEAD4]">{free} détruit{free > 1 ? "s" : ""} par le Kraken ?</span>}
+                <span className="text-[15px] font-semibold tabular-nums">Plis : <b className="text-lg" style={{ color: sumColor }}>{trickSum}</b> <span className="text-[#94A0B8]">/ {target}</span></span>
+                {target < cards && <span className="text-[12.5px] font-semibold text-[#5EEAD4]">{cards - target} pli{cards - target > 1 ? "s" : ""} perdu{cards - target > 1 ? "s" : ""} en mer</span>}
               </div>
               <div className="h-1.5 overflow-hidden rounded-full bg-[#111A2C]">
-                <motion.div className="h-full rounded-full" animate={{ width: `${Math.min(100, (trickSum / Math.max(cards, 1)) * 100)}%`, backgroundColor: sumColor }} />
+                <motion.div className="h-full rounded-full" animate={{ width: `${Math.min(100, (trickSum / Math.max(target, 1)) * 100)}%`, backgroundColor: sumColor }} />
               </div>
+              {settings.leviathans && (
+                <div className="mt-1 grid grid-cols-2 gap-2">
+                  <LossChip emoji="🐙" label="Kraken" sub="1 pli détruit" on={lost.kraken} disabled={!lost.kraken && target <= 0}
+                    onToggle={() => setLost({ ...lost, kraken: !lost.kraken })} />
+                  <LossChip emoji="🐳" label="Baleine blanche" sub="1 pli défaussé" on={lost.whale} disabled={!lost.whale && target <= 0}
+                    onToggle={() => setLost({ ...lost, whale: !lost.whale })} />
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {players.map((p, i) => (
                 <TrickRow key={p.id} i={i} p={p} e={entries[p.id]} cards={cards} settings={settings} total={totals[p.id]} free={free} complete={trickOk}
-                  onBonus={() => onBonus(p.id)} setEntry={(patch) => setEntry(p.id, patch)} />
+                  harryElsewhere={players.find((q) => q.id !== p.id && hasHarry(entries[q.id]))?.name}
+                  onBonus={() => onBonus(p.id)} setEntry={(patch) => setEntry(p.id, patch)} onHarry={(v) => setHarry(p.id, v)} />
               ))}
             </div>
           </motion.div>
@@ -707,8 +719,48 @@ function GameScreen({ players, settings, seq, idx, cards, roundIndex, phase, set
   );
 }
 
-function TrickRow({ i, p, e, cards, settings, total, free, complete, onBonus, setEntry }) {
+/** Léviathans : carte jouée cette manche, qui fait perdre un pli à tout le monde. */
+function LossChip({ emoji, label, sub, on, disabled, onToggle }) {
+  return (
+    <motion.button {...press} onClick={() => { buzz(); onToggle(); }} aria-pressed={on} disabled={disabled} aria-label={`${label} joué : ${sub}`}
+      className={`flex min-h-12 items-center gap-2 rounded-xl border px-2.5 py-1.5 text-left disabled:opacity-35 ${on ? "border-[#2DD4BF] bg-[#0D2E2A] text-[#E8ECF4]" : "border-[#1E2A43] bg-[#0E1626] text-[#94A0B8]"} ${FOCUS}`}>
+      <span aria-hidden className={`text-[22px] leading-none transition ${on ? "" : "opacity-50 grayscale"}`}>{emoji}</span>
+      <span className="flex min-w-0 flex-col leading-tight">
+        <span className="truncate text-[14px] font-bold">{label}</span>
+        <span className={`text-[12px] ${on ? "text-[#5EEAD4]" : "text-[#6F7C96]"}`}>{sub}</span>
+      </span>
+    </motion.button>
+  );
+}
+
+/** Harry le Géant : après le dernier pli, son détenteur peut changer son pari de ±1. */
+function HarryPicker({ p, bet, harry, cards, onPick }) {
+  const opt = (v, text) => {
+    const on = harry === v;
+    const disabled = bet + v < 0 || bet + v > cards;
+    return (
+      <motion.button key={v} {...press} role="radio" aria-checked={on} disabled={disabled} onClick={() => { buzz(); onPick(v); }}
+        className={`h-11 rounded-[10px] text-[14px] font-bold tabular-nums disabled:opacity-30 ${on ? "bg-[#2A2112] text-[#FCE7B8] ring-1 ring-[#F2B544]" : "text-[#94A0B8]"} ${FOCUS}`}>
+        {text}
+      </motion.button>
+    );
+  };
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <span className="flex flex-none items-center gap-1 text-[12.5px] font-bold text-[#FCE7B8]"><BicepsFlexed size={15} /> Harry</span>
+      <div role="radiogroup" aria-label={`Pari de ${p.name} modifié par Harry le Géant`} className="grid flex-1 grid-cols-3 gap-1 rounded-xl border border-[#1E2A43] bg-[#0B1322] p-1">
+        {opt(-1, `−1 → ${bet - 1}`)}{opt(0, `Garder ${bet}`)}{opt(1, `+1 → ${bet + 1}`)}
+      </div>
+    </div>
+  );
+}
+
+function TrickRow({ i, p, e, cards, settings, total, free, complete, harryElsewhere, onBonus, setEntry, onHarry }) {
   const sc = scoreEntry(e, cards, settings);
+  // Carte unique : un seul détenteur par manche ; grisé chez les autres et sans pli gagné.
+  const holdsHarry = settings.powers && hasHarry(e);
+  const harry = holdsHarry ? e.harry : 0;
+  const harryBlocked = e.tricks === 0 || (!holdsHarry && !!harryElsewhere);
   // Tant que tous les plis ne sont pas attribués, le résultat est provisoire : pas de célébration.
   const hit = complete && sc.hit;
   const tone = complete ? sc.tone : "pending";
@@ -721,7 +773,7 @@ function TrickRow({ i, p, e, cards, settings, total, free, complete, onBonus, se
           <div className="min-w-0 flex-1">
             <div className="truncate text-[17px] font-extrabold">{p.name}</div>
             <div className="flex items-center gap-1.5 text-[13px] text-[#94A0B8]">
-              <span className="whitespace-nowrap">Pari <b className="tabular-nums text-[#F2B544]">{e.bet}</b></span>
+              <span className="whitespace-nowrap">Pari <b className="tabular-nums text-[#F2B544]">{e.bet}</b>{harry !== 0 && <> → <b className="tabular-nums text-[#F2B544]">{sc.bet}</b></>}</span>
               {settings.scoring === "rascal" && e.cannon && <ShotBadge />}
             </div>
           </div>
@@ -735,6 +787,14 @@ function TrickRow({ i, p, e, cards, settings, total, free, complete, onBonus, se
             <span className={`h-2 w-2 flex-none rounded-full ${TONE_DOT[tone]}`} />
             <motion.span key={complete ? sc.label : "pending"} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`truncate font-bold ${TONE_TEXT[tone]}`}>{complete ? sc.label : "En attente"}</motion.span>
           </div>
+          {settings.powers && (
+            <motion.button {...press} onClick={() => { buzz(); onHarry(holdsHarry ? null : 0); }} disabled={harryBlocked}
+              aria-pressed={holdsHarry} aria-label={`Harry le Géant · ${p.name}`}
+              title={harryElsewhere && !holdsHarry ? `Harry le Géant est déjà chez ${harryElsewhere}` : e.tricks === 0 ? "Aucun pli gagné : pas de Harry" : "Harry le Géant : pari ±1 après le dernier pli"}
+              className={`grid h-10 w-10 flex-none place-items-center rounded-xl disabled:opacity-30 ${holdsHarry ? "bg-[#2A2112] text-[#F2B544] ring-1 ring-[#F2B544]" : "bg-[#16213A] text-[#C3CCDD]"} ${FOCUS}`}>
+              <BicepsFlexed size={18} />
+            </motion.button>
+          )}
           {/* Sans pli gagné, aucune carte capturée : seule l'alliance Butin reste possible. */}
           <motion.button {...press} onClick={onBonus} disabled={e.tricks === 0 && !settings.loot} aria-label={`Bonus de ${p.name}`}
             title={e.tricks === 0 && !settings.loot ? "Aucun pli gagné : pas de bonus" : undefined}
@@ -745,6 +805,7 @@ function TrickRow({ i, p, e, cards, settings, total, free, complete, onBonus, se
             <motion.span key={sc.total} initial={{ scale: 1.35 }} animate={{ scale: 1 }} className={`text-[21px] font-extrabold ${complete ? ptsColor(sc.total) : "text-[#6F7C96]"}`}>{signed(sc.total)}</motion.span>
           </div>
         </div>
+        {holdsHarry && e.tricks > 0 && <HarryPicker p={p} bet={e.bet} harry={harry} cards={cards} onPick={onHarry} />}
       </Panel>
     </motion.div>
   );
@@ -768,7 +829,7 @@ function BonusSheet({ p, e, cards, settings, total, setEntry, onClose }) {
         <Avatar player={p} size={48} />
         <div className="min-w-0 flex-1">
           <Title className="m-0 truncate text-[28px] leading-none">{p.name}</Title>
-          <div className="text-[13px] tabular-nums text-[#94A0B8]">Pari {e.bet} · {e.tricks} pli{e.tricks > 1 ? "s" : ""} · <span className={TONE_TEXT[sc.tone]}>{sc.label}</span></div>
+          <div className="text-[13px] tabular-nums text-[#94A0B8]">Pari {sc.bet} · {e.tricks} pli{e.tricks > 1 ? "s" : ""} · <span className={TONE_TEXT[sc.tone]}>{sc.label}</span></div>
         </div>
         <div className="text-right tabular-nums">
           <div className={`text-[24px] font-extrabold leading-none ${ptsColor(sc.total)}`}>{signed(sc.total)}</div>
@@ -851,7 +912,7 @@ function RoundSummary({ players, results, totals, seq, isRascal, last, onNext, o
       <div className="flex flex-col gap-1.5">
         {[...players].sort((a, b) => r.res[b.id].total - r.res[a.id].total).map((p, i) => {
           const x = r.res[p.id], e = r.entries[p.id];
-          const parts = [`${e.bet} annoncé${e.bet > 1 ? "s" : ""} · ${e.tricks} fait${e.tricks > 1 ? "s" : ""}`];
+          const parts = [`${x.bet} annoncé${x.bet > 1 ? "s" : ""}${x.bet !== e.bet ? " (Harry)" : ""} · ${e.tricks} fait${e.tricks > 1 ? "s" : ""}`];
           if (isRascal && e.cannon) parts.unshift("Boulet");
           if (x.bonus) parts.push(`bonus ${signed(x.bonus)}`);
           if (x.wager) parts.push(`Flambeur ${signed(x.wager)}`);
@@ -979,7 +1040,7 @@ function BoardScreen({ players, settings, seq, results, ranking, hits, totals, f
                         {players.map((p) => (
                           <td key={p.id} className="whitespace-nowrap px-2.5 py-2 text-right">
                             <b className={ptsColor(r.res[p.id].total)}>{signed(r.res[p.id].total)}</b>
-                            <div className="text-[11px] text-[#6F7C96]">{settings.scoring === "rascal" && r.entries[p.id].cannon && <Bomb size={10} className="mr-0.5 inline align-[-1px] text-[#E05168]" aria-label="Boulet" />}{r.entries[p.id].bet}/{r.entries[p.id].tricks}</div>
+                            <div className="text-[11px] text-[#6F7C96]">{settings.scoring === "rascal" && r.entries[p.id].cannon && <Bomb size={10} className="mr-0.5 inline align-[-1px] text-[#E05168]" aria-label="Boulet" />}{r.res[p.id].bet}/{r.entries[p.id].tricks}</div>
                           </td>
                         ))}
                       </tr>
@@ -1039,7 +1100,7 @@ function EndScreen({ players, results, ranking, hits, onRematch, onBoard, onNewC
     out.push({ title: "Pari parfait", who: acc.p.name, detail: `${acc.v}/${results.length} paris exacts`, Icon: Target, accent: "#2DD4BF" });
     const bon = best((p) => results.reduce((a, r) => a + r.res[p.id].bonus, 0));
     if (bon.v > 0) out.push({ title: "Chasseur de trésors", who: bon.p.name, detail: `+${bon.v} pts de bonus`, Icon: Gem, accent: "#A78BFA" });
-    const zero = best((p) => results.filter((r) => r.entries[p.id].bet === 0 && r.entries[p.id].tricks === 0).length);
+    const zero = best((p) => results.filter((r) => r.res[p.id].bet === 0 && r.entries[p.id].tricks === 0).length);
     if (zero.v > 0) out.push({ title: "Fantôme des abysses", who: zero.p.name, detail: `${zero.v} zéro${zero.v > 1 ? "s" : ""} tenu${zero.v > 1 ? "s" : ""}`, Icon: GhostIcon, accent: "#5AA9FF" });
     let worst = { v: 0 };
     results.forEach((r, i) => players.forEach((p) => { if (r.res[p.id].total < worst.v) worst = { v: r.res[p.id].total, p, i }; }));

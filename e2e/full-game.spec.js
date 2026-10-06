@@ -207,3 +207,88 @@ test("extension Butin : alliance réussie possible avec 0 pli, captures verrouil
   await expect(row("Bob")).toContainText("+10");     // zéro tenu
   await expect(row("Charlie")).toContainText("+30"); // zéro tenu + alliance 20
 });
+
+test("Kraken (1 pli détruit au plus) et Harry le Géant (pari ±1)", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.getByRole("button", { name: /^Retirer Keryan/ }).click();
+  for (const [i, name] of PLAYERS.entries()) await page.getByLabel(`Nom du pirate ${i + 1}`).fill(name);
+  await page.getByRole("button", { name: /Kraken & Baleine/ }).click();
+  await page.getByRole("button", { name: /Pouvoirs des pirates/ }).click();
+  await page.getByRole("button", { name: /Hisser les voiles/ }).click();
+  const yoho = page.getByRole("dialog", { name: /Yo-Ho-Ho/ });
+  const validate = page.getByRole("button", { name: /Valider la manche|à attribuer|en trop/ });
+  const kraken = page.getByRole("button", { name: /^Kraken joué/ });
+  const whale = page.getByRole("button", { name: /^Baleine blanche joué/ });
+  const summary = page.getByRole("dialog", { name: "Résultats de la manche" });
+  const row = (name) => summary.locator("div.rounded-\\[14px\\]").filter({ hasText: name });
+
+  // Manche 1 (1 carte) : tout le monde parie 0, le Kraken dévore l'unique pli.
+  await yoho.click();
+  await page.getByRole("button", { name: /Bloquer les paris/ }).click();
+  await expect(validate).toHaveText(/Encore 1 pli à attribuer/);
+  await kraken.click();
+  await expect(kraken).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("1 pli perdu en mer")).toBeVisible();
+  await expect(whale).toBeDisabled(); // plus aucun pli à perdre
+  await expect(validate).toBeEnabled();
+  for (const name of PLAYERS) await expect(page.getByRole("button", { name: `Plus 1 · plis de ${name}`, exact: true })).toBeDisabled();
+  await validate.click();
+  for (const name of PLAYERS) await expect(row(name)).toContainText("+10");
+  await summary.getByRole("button", { name: /Manche 2/ }).click();
+
+  // Manche 2 (2 cartes) : Alice parie 2, le Kraken détruit un pli → un seul pli à attribuer.
+  await yoho.click();
+  await page.getByRole("button", { name: "Plus 1 · pari de Alice", exact: true }).click();
+  await page.getByRole("button", { name: "Plus 1 · pari de Alice", exact: true }).click();
+  await page.getByRole("button", { name: /Bloquer les paris/ }).click();
+  await expect(kraken).toHaveAttribute("aria-pressed", "false"); // réinitialisé à chaque manche
+  await kraken.click();
+  await page.getByRole("button", { name: "Plus 1 · plis de Alice", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Plus 1 · plis de Alice", exact: true })).toBeDisabled(); // un seul pli détruit, pas deux
+  await expect(validate).toBeEnabled();
+
+  // Harry : impossible sans pli ; Alice l'utilise pour descendre son pari à 1.
+  await expect(page.getByRole("button", { name: "Harry le Géant · Bob" })).toBeDisabled();
+  await page.getByRole("button", { name: "Harry le Géant · Alice" }).click();
+  await page.getByRole("radiogroup", { name: /Pari de Alice modifié par Harry/ }).getByRole("radio", { name: "−1 → 1" }).click();
+  await expect(page.getByText("Pari 2 → 1")).toBeVisible();
+  await validate.click();
+  await expect(row("Alice")).toContainText("+20");
+  await expect(row("Alice")).toContainText("1 annoncé (Harry)");
+  await expect(row("Bob")).toContainText("+20");
+  await expect(row("Charlie")).toContainText("+20");
+  await summary.getByRole("button", { name: /Manche 3/ }).click();
+
+  // Manche 3 (3 cartes) : chacun fait 1 pli. Harry étant une carte unique, un seul joueur peut l'activer.
+  await yoho.click();
+  await page.getByRole("button", { name: "Plus 1 · pari de Alice", exact: true }).click();
+  for (let k = 0; k < 2; k++) await page.getByRole("button", { name: "Plus 1 · pari de Bob", exact: true }).click();
+  await page.getByRole("button", { name: "Plus 1 · pari de Charlie", exact: true }).click();
+  await page.getByRole("button", { name: /Bloquer les paris/ }).click();
+  for (const name of PLAYERS) await page.getByRole("button", { name: `Plus 1 · plis de ${name}`, exact: true }).click();
+  const harryOf = (name) => page.getByRole("button", { name: `Harry le Géant · ${name}` });
+  const pickers = page.getByRole("radiogroup", { name: /modifié par Harry/ });
+
+  await harryOf("Alice").click();
+  await expect(harryOf("Alice")).toHaveAttribute("aria-pressed", "true");
+  await expect(harryOf("Bob")).toBeDisabled();
+  await expect(harryOf("Charlie")).toBeDisabled();
+  await expect(pickers).toHaveCount(1);
+
+  await harryOf("Alice").click(); // Alice rend la carte…
+  await expect(harryOf("Alice")).toHaveAttribute("aria-pressed", "false");
+  await expect(pickers).toHaveCount(0);
+  await harryOf("Bob").click();   // …c'était Bob qui l'avait.
+  await expect(harryOf("Alice")).toBeDisabled();
+  await expect(pickers).toHaveCount(1);
+  await pickers.getByRole("radio", { name: "−1 → 1" }).click();
+  await expect(page.getByText("Pari 2 → 1")).toBeVisible();
+
+  await validate.click();
+  await expect(row("Alice")).toContainText("+20");
+  await expect(row("Bob")).toContainText("+20");
+  await expect(row("Bob")).toContainText("1 annoncé (Harry)");
+  await expect(row("Charlie")).toContainText("+20");
+});
