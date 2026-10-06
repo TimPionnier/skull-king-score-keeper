@@ -26,5 +26,19 @@ pnpm-debug.log*
 *.sln
 *.sw?
 
-# Vite cache
+# Vite
 .vite/
+vite.config.*.timestamp-*
+*.local
+
+# Tests (Playwright / Vitest)
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
+playwright/.auth/
+coverage/
+
+# Outils locaux
+.eslintcache
+.claude/settings.local.json

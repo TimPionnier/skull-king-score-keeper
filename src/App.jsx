@@ -12,8 +12,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useDragControls } from "framer-motion";
 import {
   Anchor, BarChart3, Check, ChevronDown, ChevronLeft, Coins, Compass, Crown, Flame, Gem, Ghost as GhostIcon,
-  Minus, Plus, RotateCcw, Ship, Skull, SlidersHorizontal, Sparkles, Swords, Target, UserPlus, Waves, X, Fish, Bird, Layers, Palette, Bomb,
+  Lock, Minus, Plus, RotateCcw, Ship, Skull, SlidersHorizontal, Sparkles, Swords, Target, UserPlus, Waves, X, Fish, Bird, Layers, Palette, Bomb,
 } from "lucide-react";
+import { VARIANTS, TRICK_BONUS, freshEntries, roundSequence, scoreEntry, tricksComplete } from "./scoring.js";
 
 /* ═══════════════════════ Données & règles ═══════════════════════ */
 
@@ -23,59 +24,10 @@ const ICONS = [Skull, Anchor, Compass, Ship, Swords, Gem, Fish, Bird];
 const ICON_NAMES = ["crâne", "ancre", "boussole", "navire", "sabres", "joyau", "sirène", "perroquet"];
 const DEFAULT_NAMES = ["Tim", "Guimi", "Louis", "Keryan", "Anne", "Calico", "Mary", "Barbe"];
 
-const VARIANTS = [
-  { id: "classic", name: "Classique", desc: "10 manches · 1 → 10", seq: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
-  { id: "even", name: "Pas d'impair", desc: "5 manches · 2 → 10", seq: [2, 4, 6, 8, 10] },
-  { id: "combat", name: "Prêt au combat", desc: "5 manches · 6 → 10", seq: [6, 7, 8, 9, 10] },
-  { id: "eclair", name: "Attaque éclair", desc: "5 manches · 5 cartes", seq: [5, 5, 5, 5, 5] },
-  { id: "barrage", name: "Tir de barrage", desc: "10 manches · 10 cartes", seq: Array(10).fill(10) },
-  { id: "tourbillon", name: "Tourbillon", desc: "5 manches · 9 → 1", seq: [9, 7, 5, 3, 1] },
-];
-
-const newEntry = () => ({ bet: 0, tricks: 0, b14c: 0, b14n: false, mermaid: 0, pirate: 0, skc: false, loot: 0, wager: 0, cannon: false });
-const freshEntries = (players) => Object.fromEntries(players.map((p) => [p.id, newEntry()]));
 const signed = (n) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : "0");
 const ptsColor = (n) => (n > 0 ? "text-[#2DD4BF]" : n < 0 ? "text-[#FF7A8E]" : "text-[#94A0B8]");
 const ord = (n) => (n === 1 ? "1er" : `${n}e`);
 const buzz = (ms = 8) => { try { navigator.vibrate?.(ms); } catch { /* iOS : pas de vibration */ } };
-
-/** Séquence de cartes par manche, plafonnée par la taille de la pioche (7-8 joueurs). */
-function roundSequence(settings, nPlayers) {
-  const v = VARIANTS.find((x) => x.id === settings.variant) ?? VARIANTS[0];
-  const deck = 70 + (settings.loot ? 2 : 0) + (settings.leviathans ? 2 : 0);
-  const cap = Math.floor(deck / Math.max(nPlayers, 1));
-  return v.seq.map((c) => Math.min(c, cap));
-}
-
-const rawBonus = (e, st) =>
-  e.b14c * 10 + (e.b14n ? 20 : 0) + e.mermaid * 20 + e.pirate * 30 + (e.skc ? 40 : 0) + (st.loot ? e.loot * 20 : 0);
-
-/** Barème officiel : Skull King (classique) ou Rascal (Chevrotine ou Boulet de canon, choisi par joueur à chaque manche) + mise du Flambeur. */
-function scoreEntry(e, cards, st) {
-  const diff = Math.abs(e.bet - e.tricks);
-  const raw = rawBonus(e, st);
-  let base = 0, bonus = 0, label = "", tone = "miss";
-  if (st.scoring === "rascal") {
-    if (e.cannon) {
-      if (diff === 0) { base = 15 * cards; bonus = raw; label = "Boulet au but"; tone = "hit"; }
-      else label = "Boulet à l’eau";
-    } else {
-      const f = diff === 0 ? 1 : diff === 1 ? 0.5 : 0;
-      base = Math.round(10 * cards * f);
-      bonus = Math.round(raw * f);
-      label = diff === 0 ? "Coup direct" : diff === 1 ? "Frappe à revers" : "Échec cuisant";
-      tone = diff === 0 ? "hit" : diff === 1 ? "half" : "miss";
-    }
-  } else if (diff === 0) {
-    base = e.bet === 0 ? 10 * cards : 20 * e.bet; bonus = raw;
-    label = e.bet === 0 ? "Zéro tenu !" : "Pari réussi"; tone = "hit";
-  } else {
-    base = e.bet === 0 ? -10 * cards : -10 * diff;
-    label = `Raté de ${diff}`;
-  }
-  const wager = st.powers && e.wager ? (diff === 0 ? e.wager : -e.wager) : 0;
-  return { base, bonus, raw, wager, total: base + bonus + wager, hit: diff === 0, diff, label, tone };
-}
 
 const TONE_TEXT = { hit: "text-[#5EEAD4]", half: "text-[#FCE7B8]", miss: "text-[#FF9AAA]", pending: "text-[#8390AA]" };
 const TONE_DOT = { hit: "bg-[#2DD4BF]", half: "bg-[#F2B544]", miss: "bg-[#FF7A8E]", pending: "bg-[#3A4A6B]" };
@@ -161,13 +113,19 @@ function TopBar({ children }) {
   );
 }
 
+/**
+ * Un overlay en cours de sortie reste monté jusqu'à la fin de son animation : sans ceci, il intercepte
+ * le clic suivant (ex. premier toucher sur « Classement » ou « Réglages » ignoré juste après sa fermeture).
+ */
+const EXIT_PASSTHROUGH = { opacity: 0, pointerEvents: "none" };
+
 /** Bottom sheet : glisse depuis le bas, se ferme en tirant la poignée vers le bas ou en touchant le fond. */
 function Sheet({ open, onClose, label, children }) {
   const controls = useDragControls();
   return (
     <AnimatePresence>
       {open && (
-        <motion.div key="sheet" className="fixed inset-0 z-30 flex items-end justify-center sm:items-center sm:p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+        <motion.div key="sheet" className="fixed inset-0 z-30 flex items-end justify-center sm:items-center sm:p-4" initial={{ opacity: 0 }} animate={{ opacity: 1, pointerEvents: "auto" }} exit={EXIT_PASSTHROUGH}>
           <div className="absolute inset-0 bg-[rgba(4,7,14,.72)]" onClick={onClose} aria-hidden />
           <motion.div
             role="dialog" aria-modal="true" aria-label={label}
@@ -355,20 +313,23 @@ export default function SkullKingApp() {
     const named = players.map((p, i) => ({ ...p, name: p.name.trim() || `Pirate ${i + 1}` }));
     setPlayers(named);
     setRounds([]); setPhase("bet"); setEntries(freshEntries(named)); setBonusFor(null);
-    setTransition(null); setFinished(false); setGameActive(true); setCountdown(0);
+    setTransition(null); setFinished(false); setGameActive(true);
     setScreen("game");
+    startYoHo();
   };
   const setEntry = (pid, patch) => setEntries((en) => ({ ...en, [pid]: { ...en[pid], ...patch } }));
 
+  // Début de manche : Yo-Ho-Ho ! puis saisie des paris (la phase reste « bet »).
   const startYoHo = () => {
     clearTimers();
     setCountdown(1);
     [2, 3, 4].forEach((n, i) => timers.current.push(setTimeout(() => { setCountdown(n); buzz(n === 4 ? 30 : 15); }, 650 * (i + 1))));
-    timers.current.push(setTimeout(finishCountdown, 650 * 3 + 1700));
+    timers.current.push(setTimeout(finishCountdown, 650 * 3 + 1100));
   };
-  const finishCountdown = () => { clearTimers(); setCountdown(0); setPhase("tricks"); };
+  const finishCountdown = () => { clearTimers(); setCountdown(0); };
 
   const validateRound = () => {
+    if (!tricksComplete(entries, players, cards, settings)) return;
     const last = roundIndex + 1 >= seq.length;
     buzz(25);
     setRounds((rs) => [...rs, { cards, entries }]);
@@ -381,7 +342,11 @@ export default function SkullKingApp() {
     setRounds((rs) => rs.slice(0, -1));
     setEntries(prev.entries); setPhase("tricks"); setTransition(null); setFinished(false); setGameActive(true);
   };
-  const closeTransition = () => { setTransition(null); setScreen(finished ? "end" : "game"); };
+  const closeTransition = () => {
+    if (!transition) return;
+    setTransition(null); setScreen(finished ? "end" : "game");
+    if (!finished) startYoHo();
+  };
   const newCrew = () => {
     clearTimers(); setPlayers(DEFAULT_PLAYERS); setSettings(DEFAULT_SETTINGS); setRounds([]); setEntries(freshEntries(DEFAULT_PLAYERS));
     setGameActive(false); setFinished(false); setPhase("bet"); setScreen("setup");
@@ -398,7 +363,7 @@ export default function SkullKingApp() {
         )}
         {screen === "game" && (
           <GameScreen key="game"
-            {...{ players, settings, seq, idx, cards, roundIndex, phase, setPhase, entries, setEntry, totals, rankOf, startYoHo, validateRound }}
+            {...{ players, settings, seq, idx, cards, roundIndex, phase, setPhase, entries, setEntry, totals, rankOf, validateRound }}
             onBonus={setBonusFor} onBoard={() => setScreen("board")} onSetup={() => setScreen("setup")} />
         )}
         {screen === "board" && (
@@ -423,7 +388,7 @@ export default function SkullKingApp() {
       </Sheet>
 
       <AnimatePresence>
-        {countdown > 0 && <CountdownOverlay key="cd" step={countdown} players={players} entries={entries} isRascal={settings.scoring === "rascal"} onSkip={finishCountdown} />}
+        {countdown > 0 && <CountdownOverlay key="cd" step={countdown} round={idx + 1} total={seq.length} cards={cards} onSkip={finishCountdown} />}
       </AnimatePresence>
     </div>
   );
@@ -614,13 +579,13 @@ function SetupScreen({ players, settings, seq, canResume, crewChangedDuringGame,
 
 /* ═══════════════════════ 2. Jeu (saisie par manche) ═══════════════════════ */
 
-function GameScreen({ players, settings, seq, idx, cards, roundIndex, phase, setPhase, entries, setEntry, totals, rankOf, startYoHo, validateRound, onBonus, onBoard, onSetup }) {
+function GameScreen({ players, settings, seq, idx, cards, roundIndex, phase, setPhase, entries, setEntry, totals, rankOf, validateRound, onBonus, onBoard, onSetup }) {
   const n = players.length;
   const isRascal = settings.scoring === "rascal";
   const dealerIdx = idx % n, starterIdx = (idx + 1) % n;
   const betSum = players.reduce((a, p) => a + entries[p.id].bet, 0);
   const trickSum = players.reduce((a, p) => a + entries[p.id].tricks, 0);
-  const trickOk = settings.leviathans ? trickSum <= cards : trickSum === cards;
+  const trickOk = tricksComplete(entries, players, cards, settings);
   const free = cards - trickSum;
 
   const mood = betSum > cards ? ["Ça va saigner", "bg-[#3A1420] text-[#FF9AAA]"]
@@ -654,11 +619,14 @@ function GameScreen({ players, settings, seq, idx, cards, roundIndex, phase, set
             <motion.div key={i} className="h-1.5 flex-1 rounded-full" animate={{ backgroundColor: i < roundIndex ? "#F2B544" : i === roundIndex ? "#2DD4BF" : "#1E2A43" }} />
           ))}
         </div>
-        <div role="tablist" aria-label="Étape de la manche" className="mt-3 grid grid-cols-2 gap-1 rounded-[14px] border border-[#22304B] bg-[#111A2C] p-1">
+        <div role="tablist" aria-label="Étape de la manche" className="relative mt-3 grid grid-cols-2 gap-1 rounded-[14px] border border-[#22304B] bg-[#111A2C] p-1">
+          {/* Pastille en CSS pur : un layoutId Framer ici bloquait la sortie de l'écran (AnimatePresence mode="wait"),
+              d'où le premier toucher sur « Classement » / « Réglages » sans effet après être passé aux plis. */}
+          <span aria-hidden className="absolute inset-y-1 left-1 w-[calc(50%-6px)] rounded-[10px] bg-[#F2B544] transition-transform duration-300 ease-out"
+            style={{ transform: phase === "tricks" ? "translateX(calc(100% + 4px))" : "none" }} />
           {[["bet", "1 · Paris"], ["tricks", "2 · Plis & bonus"]].map(([k, l]) => (
             <button key={k} role="tab" aria-selected={phase === k} onClick={() => setPhase(k)}
-              className={`relative h-10 rounded-[10px] text-[14px] font-bold ${phase === k ? "text-[#1B1204]" : "text-[#8390AA]"} ${FOCUS}`}>
-              {phase === k && <motion.span layoutId="phase-pill" className="absolute inset-0 rounded-[10px] bg-[#F2B544]" transition={{ type: "spring", stiffness: 500, damping: 35 }} />}
+              className={`relative h-10 rounded-[10px] text-[14px] font-bold transition-colors ${phase === k ? "text-[#1B1204]" : "text-[#8390AA]"} ${FOCUS}`}>
               <span className="relative">{l}</span>
             </button>
           ))}
@@ -723,13 +691,12 @@ function GameScreen({ players, settings, seq, idx, cards, roundIndex, phase, set
 
       <BottomBar>
         {phase === "bet" ? (
-          <CTA onClick={startYoHo} className="h-14 w-full">
-            <span className="font-['Pirata_One'] text-[28px] font-normal leading-none">Yo-Ho-Ho !</span>
-            <span className="text-[14px] font-bold opacity-75">révéler les paris</span>
+          <CTA onClick={() => { buzz(20); setPhase("tricks"); }} className="h-14 w-full text-[17px]">
+            <Lock size={20} strokeWidth={2.6} /> Bloquer les paris &amp; lancer la manche
           </CTA>
         ) : (
           <div className="flex gap-2">
-            <Ghost onClick={() => setPhase("bet")} aria-label="Revenir aux paris" className="grid h-14 w-14 flex-none place-items-center"><ChevronLeft size={24} /></Ghost>
+            <Ghost onClick={() => setPhase("bet")} aria-label="Modifier les paris" className="grid h-14 w-14 flex-none place-items-center"><ChevronLeft size={24} /></Ghost>
             <CTA onClick={validateRound} disabled={!trickOk} className="h-14 flex-1 text-[17px]">
               {trickOk && <Check size={21} strokeWidth={2.8} />} {validateLabel}
             </CTA>
@@ -759,7 +726,8 @@ function TrickRow({ i, p, e, cards, settings, total, free, complete, onBonus, se
             </div>
           </div>
           <Stepper value={e.tricks} who={`plis de ${p.name}`} plusColor="teal"
-            onDec={() => setEntry({ tricks: Math.max(0, e.tricks - 1) })} onInc={() => setEntry({ tricks: Math.min(cards, e.tricks + 1) })}
+            onDec={() => { const t = Math.max(0, e.tricks - 1); setEntry(t === 0 ? { tricks: 0, ...TRICK_BONUS } : { tricks: t }); }}
+            onInc={() => setEntry({ tricks: Math.min(cards, e.tricks + 1) })}
             decDisabled={e.tricks <= 0} incDisabled={e.tricks >= cards || free <= 0} />
         </div>
         <div className="mt-2 flex items-center gap-2 border-t border-[#1E2A43] pt-2">
@@ -767,8 +735,10 @@ function TrickRow({ i, p, e, cards, settings, total, free, complete, onBonus, se
             <span className={`h-2 w-2 flex-none rounded-full ${TONE_DOT[tone]}`} />
             <motion.span key={complete ? sc.label : "pending"} initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={`truncate font-bold ${TONE_TEXT[tone]}`}>{complete ? sc.label : "En attente"}</motion.span>
           </div>
-          <motion.button {...press} onClick={onBonus} aria-label={`Bonus de ${p.name}`}
-            className={`flex h-10 flex-none items-center gap-1 rounded-xl px-2.5 text-[14px] font-bold ${sc.raw > 0 ? "bg-[#0D2E2A] text-[#5EEAD4]" : "bg-[#16213A] text-[#C3CCDD]"} ${FOCUS}`}>
+          {/* Sans pli gagné, aucune carte capturée : seule l'alliance Butin reste possible. */}
+          <motion.button {...press} onClick={onBonus} disabled={e.tricks === 0 && !settings.loot} aria-label={`Bonus de ${p.name}`}
+            title={e.tricks === 0 && !settings.loot ? "Aucun pli gagné : pas de bonus" : undefined}
+            className={`flex h-10 flex-none items-center gap-1 rounded-xl px-2.5 text-[14px] font-bold disabled:opacity-30 ${sc.raw > 0 ? "bg-[#0D2E2A] text-[#5EEAD4]" : "bg-[#16213A] text-[#C3CCDD]"} ${FOCUS}`}>
             <Sparkles size={15} /> {sc.raw > 0 ? `+${sc.raw}` : "Bonus"}
           </motion.button>
           <div className="flex w-[84px] flex-none items-baseline justify-end gap-1 tabular-nums">
@@ -782,13 +752,15 @@ function TrickRow({ i, p, e, cards, settings, total, free, complete, onBonus, se
 
 function BonusSheet({ p, e, cards, settings, total, setEntry, onClose }) {
   const sc = scoreEntry(e, cards, settings);
+  const noTrick = e.tricks === 0; // aucune capture possible : seule l'alliance Butin reste saisissable
   const seg = (on, danger) => (on ? (danger ? "border-[#E05168] bg-[#3A1420] text-[#FFB3BF]" : "border-[#F2B544] bg-[#2A2112] text-[#FCE7B8]") : "border-[#1E2A43] bg-[#0E1626] text-[#C3CCDD]");
   const rows = [
     ["b14c", "14 de couleur", "+10 chacun · vert, violet, jaune", 3],
     ["mermaid", "Sirène capturée par un Pirate", "+20 chacune", 2],
     ["pirate", "Pirate capturé par le Skull King", "+30 chacun (Tigresse incluse)", 6],
-    ...(settings.loot ? [["loot", "Alliance Butin réussie", "+20 chacune", 2]] : []),
+    ...(settings.loot ? [["loot", "Alliance Butin réussie", "+20 chacune · même sans pli", 2]] : []),
   ];
+  const needsTrick = (key) => key !== "loot";
   const toggles = [["b14n", "14 noir (Drapeau pirate)", "+20"], ["skc", "Skull King capturé par une Sirène", "+40"]];
   return (
     <div className="flex flex-col gap-4 pt-1">
@@ -808,17 +780,21 @@ function BonusSheet({ p, e, cards, settings, total, setEntry, onClose }) {
           {sc.bonus === 0 ? "Pari manqué : ces bonus ne comptent pas cette manche." : "Frappe à revers : la moitié des bonus est comptée."}
         </p>
       )}
+      {noTrick && (
+        <p className="m-0 rounded-xl bg-[#16213A] px-3 py-2 text-[13px] font-semibold text-[#C3CCDD]">Aucun pli gagné : seule l'alliance Butin peut rapporter des points.</p>
+      )}
       <div className="flex flex-col divide-y divide-[#1E2A43] rounded-2xl border border-[#1E2A43] bg-[#0B1322]">
         {rows.map(([key, label, sub, max]) => (
-          <div key={key} className="flex items-center gap-2.5 px-3 py-2.5">
+          <div key={key} className={`flex items-center gap-2.5 px-3 py-2.5 ${noTrick && needsTrick(key) ? "opacity-35" : ""}`}>
             <div className="min-w-0 flex-1"><div className="text-[15px] font-bold leading-tight">{label}</div><div className="text-[12.5px] text-[#8FB3AE]">{sub}</div></div>
             <Stepper value={e[key]} who={label} plusColor="teal"
               onDec={() => setEntry({ [key]: Math.max(0, e[key] - 1) })} onInc={() => setEntry({ [key]: Math.min(max, e[key] + 1) })}
-              decDisabled={e[key] <= 0} incDisabled={e[key] >= max} />
+              decDisabled={e[key] <= 0} incDisabled={e[key] >= max || (noTrick && needsTrick(key))} />
           </div>
         ))}
         {toggles.map(([key, label, sub]) => (
-          <button key={key} onClick={() => { buzz(); setEntry({ [key]: !e[key] }); }} aria-pressed={e[key]} className={`flex min-h-[60px] items-center gap-2.5 px-3 py-2 text-left ${FOCUS}`}>
+          <button key={key} onClick={() => { buzz(); setEntry({ [key]: !e[key] }); }} aria-pressed={e[key]} disabled={noTrick}
+            className={`flex min-h-[60px] items-center gap-2.5 px-3 py-2 text-left disabled:opacity-35 ${FOCUS}`}>
             <span className="min-w-0 flex-1"><span className="block text-[15px] font-bold leading-tight">{label}</span><span className="block text-[12.5px] text-[#8FB3AE]">{sub}</span></span>
             <Toggle on={e[key]} />
           </button>
@@ -829,7 +805,7 @@ function BonusSheet({ p, e, cards, settings, total, setEntry, onClose }) {
           <span className="text-[13px] font-bold uppercase tracking-wider text-[#94A0B8]">Mise du Flambeur <span className="normal-case tracking-normal text-[#6F7C96]">(gagnée si exact, perdue sinon)</span></span>
           <div className="grid grid-cols-3 gap-2">
             {[0, 10, 20].map((w) => (
-              <button key={w} onClick={() => setEntry({ wager: w })} aria-pressed={e.wager === w} className={`h-12 rounded-xl border-2 text-[15px] font-extrabold ${seg(e.wager === w)}`}>{w === 0 ? "Aucune" : `${w} pts`}</button>
+              <button key={w} onClick={() => setEntry({ wager: w })} aria-pressed={e.wager === w} disabled={noTrick && w > 0} className={`h-12 rounded-xl border-2 text-[15px] font-extrabold disabled:opacity-35 ${seg(e.wager === w)}`}>{w === 0 ? "Aucune" : `${w} pts`}</button>
             ))}
           </div>
         </div>
@@ -841,31 +817,21 @@ function BonusSheet({ p, e, cards, settings, total, setEntry, onClose }) {
 
 /* ---------- Overlays ---------- */
 
-function CountdownOverlay({ step, players, entries, isRascal, onSkip }) {
+/** Début de manche : « Yo-Ho-Ho ! » scandé en frappant la table, puis chacun montre son pari avec les doigts. */
+function CountdownOverlay({ step, round, total, cards, onSkip }) {
   const words = { 1: ["Yo", "#E8ECF4"], 2: ["Ho", "#F2B544"], 3: ["Ho !", "#E05168"] };
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onSkip}
-      role="dialog" aria-modal="true" aria-label="Révélation des paris"
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, pointerEvents: "auto" }} exit={EXIT_PASSTHROUGH} onClick={onSkip}
+      role="dialog" aria-modal="true" aria-label="Yo-Ho-Ho ! Annonce des paris"
       className="fixed inset-0 z-40 flex flex-col items-center justify-center gap-6 bg-[rgba(6,10,18,.95)] px-4 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] text-center">
+      <span className="text-[13px] font-bold uppercase tracking-[.25em] text-[#2DD4BF] tabular-nums">Manche {round} / {total} · {cards} carte{cards > 1 ? "s" : ""}</span>
       <AnimatePresence mode="wait">
         {step < 4 ? (
           <motion.span key={step} initial={{ opacity: 0, scale: 0.3, rotate: -10 }} animate={{ opacity: 1, scale: [0.3, 1.18, 1], rotate: [-10, 3, 0] }} exit={{ opacity: 0, scale: 1.4 }} transition={{ duration: 0.45 }}
             className="font-['Pirata_One'] text-[112px] leading-none" style={{ color: words[step][1] }}>{words[step][0]}</motion.span>
         ) : (
-          <motion.div key="reveal" initial={{ opacity: 0, scale: 0.7 }} animate={{ opacity: 1, scale: 1 }} className="flex w-full max-w-[420px] flex-col items-center gap-4">
-            <span className="font-['Pirata_One'] text-[46px] leading-none text-[#F2B544]">Paris révélés !</span>
-            <div className="grid w-full grid-cols-2 gap-2">
-              {players.map((p, i) => (
-                <motion.div key={p.id} initial={{ opacity: 0, y: 20, rotateX: 90 }} animate={{ opacity: 1, y: 0, rotateX: 0 }} transition={{ delay: i * 0.07 }}
-                  className="flex items-center gap-2 rounded-2xl border bg-[#111A2C] p-2" style={{ borderColor: COLORS[p.color] }}>
-                  <Avatar player={p} size={30} />
-                  <span className="min-w-0 flex-1 truncate text-left text-[15px] font-bold">{p.name}</span>
-                  {isRascal && entries[p.id].cannon && <Bomb size={16} className="flex-none text-[#E05168]" aria-label="Boulet de canon" />}
-                  <b className="pr-1 text-[24px] tabular-nums text-[#F2B544]">{entries[p.id].bet}</b>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
+          <motion.span key="bets" initial={{ opacity: 0, scale: 0.7 }} animate={{ opacity: 1, scale: 1 }}
+            className="font-['Pirata_One'] text-[56px] leading-none text-[#F2B544]">Montrez vos paris !</motion.span>
         )}
       </AnimatePresence>
       <span className="text-[14px] text-[#6F7C96]">Frappez trois fois sur la table ! · touchez pour passer</span>
