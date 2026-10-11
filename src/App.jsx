@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import {
   BETS_STEP, HO_FINAL_STEP, HO_STEP, LIGHTNING_FLASH_SECONDS, STORM_STEP, YO_HO_FINISH_MS, YO_HO_SCHEDULE_MS, YO_STEP,
-  bindAudio, isMuted, playYoHo, setMuted, stopSpeaking, subscribeMuted,
+  bindAudio, isMuted, playYoHo, setMuted, stopVoice, subscribeMuted,
 } from "./audio.js";
 import { VARIANTS, TRICK_BONUS, NO_LOSS, assignHarry, hasHarry, freshEntries, roundSequence, scoreEntry, tricksComplete, expectedTricks } from "./scoring.js";
 
@@ -364,7 +364,7 @@ export default function SkullKingApp() {
     YO_HO_SCHEDULE_MS.forEach(({ step, at }) => timers.current.push(setTimeout(() => playYoHo(step, showStep(step)), at)));
     timers.current.push(setTimeout(finishCountdown, YO_HO_FINISH_MS));
   };
-  const finishCountdown = () => { clearTimers(); stopSpeaking(); setCountdown(0); };
+  const finishCountdown = () => { clearTimers(); stopVoice(); setCountdown(0); };
 
   // Correction d'une manche passée : on met de côté la saisie en cours, on rouvre la manche choisie, puis on la remplace.
   const startEdit = (i) => {

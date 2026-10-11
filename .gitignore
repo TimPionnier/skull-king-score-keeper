@@ -42,3 +42,6 @@ coverage/
 # Outils locaux
 .eslintcache
 .claude/settings.local.json
+
+# Candidats audio (écoute avant de choisir)
+audio-candidates/
