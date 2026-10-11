@@ -8,12 +8,13 @@
  *  - bonus et personnalisation dans des « bottom sheets »
  *  - partie sauvegardée automatiquement (localStorage) et écran maintenu allumé
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion, useDragControls } from "framer-motion";
 import {
   Anchor, Check, ChevronDown, ChevronLeft, Coins, Compass, Crown, Flame, Gem, Ghost as GhostIcon,
-  BicepsFlexed, Lock, Minus, Plus, RotateCcw, Ship, Skull, Settings, Sparkles, Swords, Target, UserPlus, Waves, X, Fish, Bird, Layers, Palette, Bomb, Pencil, Trophy,
+  BicepsFlexed, Lock, Minus, Plus, RotateCcw, Ship, Skull, Settings, Sparkles, Swords, Target, UserPlus, Waves, X, Fish, Bird, Layers, Palette, Bomb, Pencil, Trophy, Volume2, VolumeX,
 } from "lucide-react";
+import { bindAudio, isMuted, playYoHo, setMuted, subscribeMuted } from "./audio.js";
 import { VARIANTS, TRICK_BONUS, NO_LOSS, assignHarry, hasHarry, freshEntries, roundSequence, scoreEntry, tricksComplete, expectedTricks } from "./scoring.js";
 
 /* ═══════════════════════ Données & règles ═══════════════════════ */
@@ -84,6 +85,18 @@ function Ghost({ className = "", children, ...rest }) {
     <motion.button {...press} className={`rounded-[14px] border border-[#2A3857] bg-[#16213A] text-[#E8ECF4] disabled:opacity-35 ${FOCUS} ${className}`} {...rest}>
       {children}
     </motion.button>
+  );
+}
+
+/** Coupe ou remet le thème sonore et les effets (préférence conservée). */
+function SoundToggle({ className = "" }) {
+  const muted = useSyncExternalStore(subscribeMuted, isMuted);
+  const Icon = muted ? VolumeX : Volume2;
+  return (
+    <Ghost onClick={() => setMuted(!muted)} aria-label={muted ? "Activer le son" : "Couper le son"}
+      className={`grid h-11 w-11 flex-none place-items-center ${className}`}>
+      <Icon size={20} strokeWidth={2} aria-hidden="true" />
+    </Ghost>
   );
 }
 
@@ -256,6 +269,8 @@ export default function SkullKingApp() {
   const clearTimers = () => { timers.current.forEach(clearTimeout); timers.current = []; };
   useEffect(() => clearTimers, []);
 
+  useEffect(() => bindAudio(), []);
+
   // Sauvegarde automatique
   useEffect(() => {
     try { localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, screen, players, settings, rounds, phase, entries, lost, gameActive, finished, editIdx, draft })); } catch { /* stockage indisponible */ }
@@ -341,7 +356,8 @@ export default function SkullKingApp() {
   const startYoHo = () => {
     clearTimers();
     setCountdown(1);
-    [2, 3, 4].forEach((n, i) => timers.current.push(setTimeout(() => { setCountdown(n); buzz(n === 4 ? 30 : 15); }, 650 * (i + 1))));
+    playYoHo(1);
+    [2, 3, 4].forEach((n, i) => timers.current.push(setTimeout(() => { setCountdown(n); playYoHo(n); buzz(n === 4 ? 30 : 15); }, 650 * (i + 1))));
     timers.current.push(setTimeout(finishCountdown, 650 * 3 + 1100));
   };
   const finishCountdown = () => { clearTimers(); setCountdown(0); };
@@ -453,6 +469,7 @@ function SetupScreen({ players, settings, seq, canResume, crewChangedDuringGame,
           <Title as="h1" className="m-0 text-[44px] leading-[.95] text-[#F2B544]">Skull King</Title>
           <p className="m-0 text-[15px] text-[#9AA6BF]">Le carnet de bord du capitaine</p>
         </div>
+        <SoundToggle className="ml-auto" />
       </header>
 
       {canResume && (
@@ -649,6 +666,7 @@ function GameScreen({ players, settings, seq, idx, cards, roundIndex, doneCount,
             <Ghost onClick={onCancelEdit} aria-label="Annuler la correction" className="grid h-11 w-11 flex-none place-items-center"><X size={20} /></Ghost>
           ) : (
             <>
+              <SoundToggle />
               <Ghost onClick={onBoard} aria-label="Classement" className="grid h-11 w-11 flex-none place-items-center"><Trophy size={20} /></Ghost>
               <Ghost onClick={onSetup} aria-label="Réglages" className="grid h-11 w-11 flex-none place-items-center"><Settings size={20} /></Ghost>
             </>
