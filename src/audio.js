@@ -52,13 +52,15 @@ export const HO_STEP = 3;
 export const HO_FINAL_STEP = 4;
 export const BETS_STEP = 5;
 export const LIGHTNING_FLASH_SECONDS = [0.2, 0.6];
+// Les mots tombent à l'instant où l'enregistrement les prononce : « Yo » au départ de la voix,
+// « Ho » 0,67 s plus tard, « Ho » final 0,94 s après le début (mesuré sur l'enveloppe du fichier).
 export const YO_HO_SCHEDULE_MS = [
   { step: YO_STEP, at: 1000 },
-  { step: HO_STEP, at: 1700 },
-  { step: HO_FINAL_STEP, at: 2400 },
-  { step: BETS_STEP, at: 3400 },
+  { step: HO_STEP, at: 1670 },
+  { step: HO_FINAL_STEP, at: 1940 },
+  { step: BETS_STEP, at: 2900 },
 ];
-export const YO_HO_FINISH_MS = 4500;
+export const YO_HO_FINISH_MS = 4000;
 
 let ctx = null;
 let master = null;
@@ -246,11 +248,8 @@ export function duckMusic(seconds) {
 const SAMPLE_FILES = {
   coins: "coins.mp3",
   thunder: "thunder.mp3",
-  yo: "voice-yo.mp3",
-  ho: "voice-ho.mp3",
-  hoFinal: "voice-ho-final.mp3",
+  yoHoHo: "voice-yo-ho-ho.mp3",
 };
-const VOICE_SAMPLE_BY_STEP = { [YO_STEP]: "yo", [HO_STEP]: "ho", [HO_FINAL_STEP]: "hoFinal" };
 
 const SILENCE_THRESHOLD_RATIO = 0.1;
 const SAMPLE_LEAD_IN_SECONDS = 0.01;
@@ -259,7 +258,8 @@ const COIN_RATE_MIN = 0.93;
 const COIN_RATE_MAX = 1.07;
 const SECOND_THUNDER_GAIN = 0.5;
 const SECOND_THUNDER_RATE = 0.8;
-const VOICE_GAIN = 1.2;
+// L'enregistrement est discret (crête à 0,4) : on le remonte.
+const VOICE_GAIN = 2.2;
 const VOICE_REVERB_SEND = 0.25;
 
 const samples = new Map();
@@ -376,9 +376,12 @@ export function playYoHo(step, onStart = () => {}) {
   if (step === STORM_STEP) {
     duckMusic(YO_HO_FINISH_MS / 1000);
     playThunder();
-  } else if (step in VOICE_SAMPLE_BY_STEP) {
+  } else if (step === YO_STEP) {
+    // Une seule prise pour « Yo ho ho » : elle démarre au premier mot, les deux suivants n'ont pas de son propre.
     stopVoice();
-    activeVoice = playSample(VOICE_SAMPLE_BY_STEP[step], { gain: VOICE_GAIN, reverbSend: VOICE_REVERB_SEND });
+    activeVoice = playSample("yoHoHo", { gain: VOICE_GAIN, reverbSend: VOICE_REVERB_SEND });
+  } else if (step === HO_STEP || step === HO_FINAL_STEP) {
+    // Rien à jouer : le mot est déjà dans l'enregistrement, seul l'affichage avance.
   } else {
     playDrum();
   }
