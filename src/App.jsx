@@ -11,8 +11,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useDragControls } from "framer-motion";
 import {
-  Anchor, BarChart3, Check, ChevronDown, ChevronLeft, Coins, Compass, Crown, Flame, Gem, Ghost as GhostIcon,
-  BicepsFlexed, Lock, Minus, Plus, RotateCcw, Ship, Skull, SlidersHorizontal, Sparkles, Swords, Target, UserPlus, Waves, X, Fish, Bird, Layers, Palette, Bomb,
+  Anchor, Check, ChevronDown, ChevronLeft, Coins, Compass, Crown, Flame, Gem, Ghost as GhostIcon,
+  BicepsFlexed, Lock, Minus, Plus, RotateCcw, Ship, Skull, Settings, Sparkles, Swords, Target, UserPlus, Waves, X, Fish, Bird, Layers, Palette, Bomb, Pencil, Trophy,
 } from "lucide-react";
 import { VARIANTS, TRICK_BONUS, NO_LOSS, assignHarry, hasHarry, freshEntries, roundSequence, scoreEntry, tricksComplete, expectedTricks } from "./scoring.js";
 
@@ -98,7 +98,7 @@ function Toggle({ on, color = "#2DD4BF" }) {
 /** Barre d'action fixe, dans la zone du pouce, au-dessus de l'indicateur d'accueil iOS. */
 function BottomBar({ children }) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[#1A2540] bg-[#0A101C]/95 px-4 pb-[max(14px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-md">
+    <div className="fixed inset-x-0 bottom-0 z-20 border-t border-[#1A2540] bg-[#0A101C] px-4 pb-[max(14px,env(safe-area-inset-bottom))] pt-3">
       <div className="mx-auto flex max-w-[640px] flex-col gap-2">{children}</div>
     </div>
   );
@@ -107,7 +107,7 @@ function BottomBar({ children }) {
 /** En-tête collant qui respecte l'encoche. */
 function TopBar({ children }) {
   return (
-    <div className="sticky top-0 z-10 -mx-4 border-b border-[#1A2540] bg-[#0A101C]/95 px-4 pb-3 pt-[max(12px,env(safe-area-inset-top))] backdrop-blur-md">
+    <div className="sticky top-0 z-10 -mx-4 border-b border-[#1A2540] bg-[#0A101C] px-4 pb-3 pt-[max(12px,env(safe-area-inset-top))]">
       {children}
     </div>
   );
@@ -167,6 +167,11 @@ function ShotPicker({ p, cannon, cards, onPick }) {
   );
 }
 
+/** « Donne » / « Ouvre » : affiché sur les deux étapes de la manche. */
+function DealTag({ tag }) {
+  return <span className={`flex-none rounded-full px-1.5 py-px text-[10.5px] font-bold uppercase tracking-wide ${tag === "Donne" ? "bg-[#1A2540] text-[#C3CCDD]" : "bg-[#2A2112] text-[#FCE7B8]"}`}>{tag}</span>;
+}
+
 function ShotBadge() {
   return <span className="inline-flex flex-none items-center gap-1 whitespace-nowrap rounded-full bg-[#3A1420] px-2 py-px text-[11.5px] font-bold text-[#FFC7D0]"><Bomb size={11} /> Boulet</span>;
 }
@@ -177,10 +182,10 @@ function Stepper({ value, onDec, onInc, decDisabled, incDisabled, who, plusColor
   return (
     <div className="flex flex-none items-center gap-1 rounded-2xl border border-[#1E2A43] bg-[#0B1322] p-1">
       <motion.button {...press} onClick={() => { buzz(); onDec(); }} disabled={decDisabled} aria-label={`Moins 1 · ${who}`}
-        className={`grid h-12 w-12 place-items-center rounded-xl bg-[#1A2540] text-[#E8ECF4] disabled:opacity-30 ${FOCUS}`}>
+        className={`grid h-11 w-11 place-items-center rounded-xl bg-[#1A2540] text-[#E8ECF4] disabled:opacity-30 min-[360px]:h-12 min-[360px]:w-12 ${FOCUS}`}>
         <Minus size={22} strokeWidth={2.8} />
       </motion.button>
-      <div className="relative h-12 w-11 overflow-hidden" aria-live="polite">
+      <div className="relative h-11 w-9 overflow-hidden min-[360px]:h-12 min-[360px]:w-11" aria-live="polite">
         <AnimatePresence initial={false} mode="popLayout">
           <motion.span key={value} initial={{ y: -18, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 18, opacity: 0 }} transition={{ type: "spring", stiffness: 600, damping: 32 }}
             className="absolute inset-0 grid place-items-center text-[30px] font-extrabold tabular-nums">
@@ -189,7 +194,7 @@ function Stepper({ value, onDec, onInc, decDisabled, incDisabled, who, plusColor
         </AnimatePresence>
       </div>
       <motion.button {...press} onClick={() => { buzz(); onInc(); }} disabled={incDisabled} aria-label={`Plus 1 · ${who}`}
-        className={`grid h-12 w-12 place-items-center rounded-xl ${plus} disabled:opacity-30 ${FOCUS}`}>
+        className={`grid h-11 w-11 place-items-center rounded-xl ${plus} disabled:opacity-30 min-[360px]:h-12 min-[360px]:w-12 ${FOCUS}`}>
         <Plus size={22} strokeWidth={2.8} />
       </motion.button>
     </div>
@@ -241,6 +246,8 @@ export default function SkullKingApp() {
   const [lost, setLost] = useState(saved?.lost ?? NO_LOSS); // Kraken / Baleine blanche joués cette manche
   const [gameActive, setGameActive] = useState(saved?.gameActive ?? false);
   const [finished, setFinished] = useState(saved?.finished ?? false);
+  const [editIdx, setEditIdx] = useState(saved?.editIdx ?? null); // manche passée en cours de correction
+  const [draft, setDraft] = useState(saved?.draft ?? null);       // saisie de la manche courante, mise de côté pendant la correction
   const [bonusFor, setBonusFor] = useState(null);
   const [countdown, setCountdown] = useState(0);
   const [transition, setTransition] = useState(null);
@@ -251,8 +258,8 @@ export default function SkullKingApp() {
 
   // Sauvegarde automatique
   useEffect(() => {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, screen, players, settings, rounds, phase, entries, lost, gameActive, finished })); } catch { /* stockage indisponible */ }
-  }, [screen, players, settings, rounds, phase, entries, lost, gameActive, finished]);
+    try { localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, screen, players, settings, rounds, phase, entries, lost, gameActive, finished, editIdx, draft })); } catch { /* stockage indisponible */ }
+  }, [screen, players, settings, rounds, phase, entries, lost, gameActive, finished, editIdx, draft]);
 
   // Garder l'écran allumé pendant la partie
   useEffect(() => {
@@ -271,8 +278,9 @@ export default function SkullKingApp() {
 
   const seq = useMemo(() => roundSequence(settings, players.length), [settings, players.length]);
   const roundIndex = rounds.length;
-  const idx = Math.min(roundIndex, seq.length - 1);
-  const cards = seq[idx];
+  const editing = editIdx != null && !!rounds[editIdx];
+  const idx = editing ? editIdx : Math.min(roundIndex, seq.length - 1);
+  const cards = editing ? rounds[editIdx].cards : seq[idx];
 
   const results = useMemo(
     () => rounds.map((r) => ({ ...r, res: Object.fromEntries(Object.entries(r.entries).map(([pid, e]) => [pid, scoreEntry(e, r.cards, settings)])) })),
@@ -288,13 +296,21 @@ export default function SkullKingApp() {
     results.forEach((r) => players.forEach((p) => { if (r.res[p.id]?.hit) h[p.id]++; }));
     return h;
   }, [results, players]);
-  const ranking = useMemo(() => {
-    const arr = players.map((p) => ({ p, total: totals[p.id] })).sort((a, b) => b.total - a.total);
+  const rankPlayers = (t) => {
+    const arr = players.map((p) => ({ p, total: t[p.id] })).sort((a, b) => b.total - a.total);
     let rank = 0, prev = null;
     arr.forEach((x, i) => { if (x.total !== prev) { rank = i + 1; prev = x.total; } x.rank = rank; });
     return arr;
-  }, [players, totals]);
-  const rankOf = Object.fromEntries(ranking.map((x) => [x.p.id, x.rank]));
+  };
+  const ranking = useMemo(() => rankPlayers(totals), [players, totals]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Totaux affichés pendant la saisie : en correction, la manche éditée est écartée (son score est en cours de refonte).
+  const gameTotals = useMemo(() => {
+    if (!editing) return totals;
+    const t = Object.fromEntries(players.map((p) => [p.id, 0]));
+    results.forEach((r, i) => { if (i !== editIdx) players.forEach((p) => { t[p.id] += r.res[p.id]?.total ?? 0; }); });
+    return t;
+  }, [editing, editIdx, results, players, totals]);
+  const rankOf = Object.fromEntries((editing ? rankPlayers(gameTotals) : ranking).map((x) => [x.p.id, x.rank]));
   const crewUnchanged = players.length === Object.keys(entries).length && players.every((p) => entries[p.id]);
 
   /* ---------- actions ---------- */
@@ -314,7 +330,7 @@ export default function SkullKingApp() {
     const named = players.map((p, i) => ({ ...p, name: p.name.trim() || `Pirate ${i + 1}` }));
     setPlayers(named);
     setRounds([]); setPhase("bet"); setEntries(freshEntries(named)); setLost(NO_LOSS); setBonusFor(null);
-    setTransition(null); setFinished(false); setGameActive(true);
+    setTransition(null); setFinished(false); setGameActive(true); setEditIdx(null); setDraft(null);
     setScreen("game");
     startYoHo();
   };
@@ -330,8 +346,22 @@ export default function SkullKingApp() {
   };
   const finishCountdown = () => { clearTimers(); setCountdown(0); };
 
+  // Correction d'une manche passée : on met de côté la saisie en cours, on rouvre la manche choisie, puis on la remplace.
+  const startEdit = (i) => {
+    if (!rounds[i]) return;
+    setDraft({ entries, lost, phase });
+    setEntries(rounds[i].entries); setLost(rounds[i].lost ?? NO_LOSS); setPhase("tricks");
+    setEditIdx(i); setBonusFor(null); setScreen("game");
+  };
+  const stopEdit = (save) => {
+    if (save) setRounds((rs) => rs.map((r, i) => (i === editIdx ? { ...r, entries, lost } : r)));
+    setEntries(draft?.entries ?? freshEntries(players)); setLost(draft?.lost ?? NO_LOSS); setPhase(draft?.phase ?? "bet");
+    setEditIdx(null); setDraft(null); setBonusFor(null); setScreen("board");
+  };
+
   const validateRound = () => {
     if (!tricksComplete(entries, players, cards, settings, lost)) return;
+    if (editing) { buzz(25); stopEdit(true); return; }
     const last = roundIndex + 1 >= seq.length;
     buzz(25);
     setRounds((rs) => [...rs, { cards, entries, lost }]);
@@ -351,7 +381,7 @@ export default function SkullKingApp() {
   };
   const newCrew = () => {
     clearTimers(); setPlayers(DEFAULT_PLAYERS); setSettings(DEFAULT_SETTINGS); setRounds([]); setEntries(freshEntries(DEFAULT_PLAYERS));
-    setGameActive(false); setFinished(false); setPhase("bet"); setScreen("setup");
+    setGameActive(false); setFinished(false); setPhase("bet"); setEditIdx(null); setDraft(null); setScreen("setup");
   };
 
   const bonusPlayer = players.find((p) => p.id === bonusFor);
@@ -365,11 +395,12 @@ export default function SkullKingApp() {
         )}
         {screen === "game" && (
           <GameScreen key="game"
-            {...{ players, settings, seq, idx, cards, roundIndex, phase, setPhase, entries, setEntry, setHarry, lost, setLost, totals, rankOf, validateRound }}
-            onBonus={setBonusFor} onBoard={() => setScreen("board")} onSetup={() => setScreen("setup")} />
+            {...{ players, settings, seq, idx, cards, phase, setPhase, entries, setEntry, setHarry, lost, setLost, rankOf, validateRound }}
+            totals={gameTotals} roundIndex={editing ? editIdx : roundIndex} doneCount={roundIndex} editing={editing}
+            onBonus={setBonusFor} onBoard={() => setScreen("board")} onSetup={() => setScreen("setup")} onCancelEdit={() => stopEdit(false)} />
         )}
         {screen === "board" && (
-          <BoardScreen key="board" {...{ players, settings, seq, results, ranking, hits, totals, finished }} onBack={() => setScreen(finished ? "end" : "game")} />
+          <BoardScreen key="board" {...{ players, settings, seq, results, ranking, hits, totals, finished }} onEdit={startEdit} onBack={() => setScreen(finished ? "end" : "game")} />
         )}
         {screen === "end" && (
           <EndScreen key="end" {...{ players, results, ranking, hits }} onRematch={launch} onBoard={() => setScreen("board")} onNewCrew={newCrew} />
@@ -378,7 +409,7 @@ export default function SkullKingApp() {
 
       <Sheet open={!!bonusPlayer} onClose={() => setBonusFor(null)} label="Bonus de la manche">
         {bonusPlayer && (
-          <BonusSheet p={bonusPlayer} e={entries[bonusPlayer.id]} cards={cards} settings={settings} total={totals[bonusPlayer.id]}
+          <BonusSheet p={bonusPlayer} e={entries[bonusPlayer.id]} cards={cards} settings={settings} total={gameTotals[bonusPlayer.id]}
             setEntry={(patch) => setEntry(bonusPlayer.id, patch)} onClose={() => setBonusFor(null)} />
         )}
       </Sheet>
@@ -581,7 +612,7 @@ function SetupScreen({ players, settings, seq, canResume, crewChangedDuringGame,
 
 /* ═══════════════════════ 2. Jeu (saisie par manche) ═══════════════════════ */
 
-function GameScreen({ players, settings, seq, idx, cards, roundIndex, phase, setPhase, entries, setEntry, setHarry, lost, setLost, totals, rankOf, validateRound, onBonus, onBoard, onSetup }) {
+function GameScreen({ players, settings, seq, idx, cards, roundIndex, doneCount, editing, phase, setPhase, entries, setEntry, setHarry, lost, setLost, totals, rankOf, validateRound, onBonus, onBoard, onSetup, onCancelEdit }) {
   const n = players.length;
   const isRascal = settings.scoring === "rascal";
   const dealerIdx = idx % n, starterIdx = (idx + 1) % n;
@@ -595,17 +626,17 @@ function GameScreen({ players, settings, seq, idx, cards, roundIndex, phase, set
     : betSum < cards ? ["Plis orphelins", "bg-[#0D2423] text-[#5EEAD4]"] : ["Équilibre parfait", "bg-[#2A2112] text-[#FCE7B8]"];
   const sumColor = trickSum > target ? "#FF7A8E" : trickOk ? "#2DD4BF" : "#F2B544";
   const validateLabel = trickSum > target ? `${trickSum - target} pli${trickSum - target > 1 ? "s" : ""} en trop`
-    : trickOk ? "Valider la manche" : `Encore ${free} pli${free > 1 ? "s" : ""} à attribuer`;
+    : trickOk ? (editing ? "Enregistrer la correction" : "Valider la manche") : `Encore ${free} pli${free > 1 ? "s" : ""} à attribuer`;
 
   return (
     <motion.div {...fadeScreen} className="mx-auto max-w-[760px] px-4 pb-40">
       <TopBar>
         <div className="flex items-center gap-2">
-          <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          <div className="flex min-w-0 flex-1 items-baseline gap-1.5 min-[360px]:gap-2">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div key={idx} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
-                <Title as="h1" className="m-0 whitespace-nowrap text-[32px] leading-none text-[#F2B544] tabular-nums">
-                  Manche {idx + 1}<span className="text-[20px] text-[#6F7C96]"> / {seq.length}</span>
+                <Title as="h1" className="m-0 whitespace-nowrap text-[28px] leading-none text-[#F2B544] tabular-nums min-[360px]:text-[32px]">
+                  Manche {idx + 1}<span className="text-[18px] text-[#6F7C96] min-[360px]:text-[20px]"> / {seq.length}</span>
                 </Title>
               </motion.div>
             </AnimatePresence>
@@ -614,12 +645,23 @@ function GameScreen({ players, settings, seq, idx, cards, roundIndex, phase, set
               <span className="sr-only"> carte{cards > 1 ? "s" : ""}</span>
             </span>
           </div>
-          <Ghost onClick={onBoard} aria-label="Classement" className="grid h-11 w-11 flex-none place-items-center"><BarChart3 size={20} /></Ghost>
-          <Ghost onClick={onSetup} aria-label="Réglages" className="grid h-11 w-11 flex-none place-items-center"><SlidersHorizontal size={20} /></Ghost>
+          {editing ? (
+            <Ghost onClick={onCancelEdit} aria-label="Annuler la correction" className="grid h-11 w-11 flex-none place-items-center"><X size={20} /></Ghost>
+          ) : (
+            <>
+              <Ghost onClick={onBoard} aria-label="Classement" className="grid h-11 w-11 flex-none place-items-center"><Trophy size={20} /></Ghost>
+              <Ghost onClick={onSetup} aria-label="Réglages" className="grid h-11 w-11 flex-none place-items-center"><Settings size={20} /></Ghost>
+            </>
+          )}
         </div>
+        {editing && (
+          <div className="mt-2.5 flex items-center gap-2 rounded-xl border border-[#6B5220] bg-[#2A2112] px-3 py-2 text-[13px] font-semibold leading-snug text-[#FCE7B8]">
+            <Pencil size={15} className="flex-none" /> Correction de la manche {idx + 1} : les autres manches ne changent pas.
+          </div>
+        )}
         <div className="mt-2.5 flex gap-1" aria-hidden>
           {seq.map((c, i) => (
-            <motion.div key={i} className="h-1.5 flex-1 rounded-full" animate={{ backgroundColor: i < roundIndex ? "#F2B544" : i === roundIndex ? "#2DD4BF" : "#1E2A43" }} />
+            <motion.div key={i} className="h-1.5 flex-1 rounded-full" animate={{ backgroundColor: i === roundIndex ? "#2DD4BF" : i < doneCount ? "#F2B544" : "#1E2A43" }} />
           ))}
         </div>
         <div role="tablist" aria-label="Étape de la manche" className="relative mt-3 grid grid-cols-2 gap-1 rounded-[14px] border border-[#22304B] bg-[#111A2C] p-1">
@@ -653,9 +695,9 @@ function GameScreen({ players, settings, seq, idx, cards, roundIndex, phase, set
                      <div className="flex items-center gap-3">
                       <Avatar player={p} size={40} />
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate text-[17px] font-extrabold">{p.name}</span>
-                          {tag && <span className={`flex-none rounded-full px-1.5 py-px text-[10.5px] font-bold uppercase tracking-wide ${tag === "Donne" ? "bg-[#1A2540] text-[#C3CCDD]" : "bg-[#2A2112] text-[#FCE7B8]"}`}>{tag}</span>}
+                        <div className="flex flex-wrap items-center gap-x-1.5">
+                          <span className="max-w-full truncate text-[17px] font-extrabold">{p.name}</span>
+                          {tag && <DealTag tag={tag} />}
                         </div>
                         <div className="text-[13px] tabular-nums text-[#94A0B8]">{totals[p.id]} pts · {ord(rankOf[p.id])}</div>
                       </div>
@@ -692,11 +734,12 @@ function GameScreen({ players, settings, seq, idx, cards, roundIndex, phase, set
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {players.map((p, i) => (
-                <TrickRow key={p.id} i={i} p={p} e={entries[p.id]} cards={cards} settings={settings} total={totals[p.id]} free={free} complete={trickOk}
+                <TrickRow key={p.id} i={i} p={p} e={entries[p.id]} tag={i === dealerIdx ? "Donne" : i === starterIdx ? "Ouvre" : null} cards={cards} settings={settings} total={totals[p.id]} free={free} complete={trickOk}
                   harryElsewhere={players.find((q) => q.id !== p.id && hasHarry(entries[q.id]))?.name}
                   onBonus={() => onBonus(p.id)} setEntry={(patch) => setEntry(p.id, patch)} onHarry={(v) => setHarry(p.id, v)} />
               ))}
             </div>
+            <p className="m-0 px-1 text-center text-[13px] text-[#6F7C96]">{players[starterIdx].name} a ouvert le premier pli</p>
           </motion.div>
         )}
       </AnimatePresence>
@@ -704,7 +747,7 @@ function GameScreen({ players, settings, seq, idx, cards, roundIndex, phase, set
       <BottomBar>
         {phase === "bet" ? (
           <CTA onClick={() => { buzz(20); setPhase("tricks"); }} className="h-14 w-full text-[17px]">
-            <Lock size={20} strokeWidth={2.6} /> Bloquer les paris &amp; lancer la manche
+            <Lock size={20} strokeWidth={2.6} className="flex-none" /> Bloquer les paris<span className="max-[359px]:hidden"> &amp; lancer la manche</span>
           </CTA>
         ) : (
           <div className="flex gap-2">
@@ -755,7 +798,7 @@ function HarryPicker({ p, bet, harry, cards, onPick }) {
   );
 }
 
-function TrickRow({ i, p, e, cards, settings, total, free, complete, harryElsewhere, onBonus, setEntry, onHarry }) {
+function TrickRow({ i, p, e, tag, cards, settings, total, free, complete, harryElsewhere, onBonus, setEntry, onHarry }) {
   const sc = scoreEntry(e, cards, settings);
   // Carte unique : un seul détenteur par manche ; grisé chez les autres et sans pli gagné.
   const holdsHarry = settings.powers && hasHarry(e);
@@ -771,7 +814,10 @@ function TrickRow({ i, p, e, cards, settings, total, free, complete, harryElsewh
         <div className="flex items-center gap-3">
           <Avatar player={p} size={40} />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[17px] font-extrabold">{p.name}</div>
+            <div className="flex flex-wrap items-center gap-x-1.5">
+              <span className="max-w-full truncate text-[17px] font-extrabold">{p.name}</span>
+              {tag && <DealTag tag={tag} />}
+            </div>
             <div className="flex items-center gap-1.5 text-[13px] text-[#94A0B8]">
               <span className="whitespace-nowrap">Pari <b className="tabular-nums text-[#F2B544]">{e.bet}</b>{harry !== 0 && <> → <b className="tabular-nums text-[#F2B544]">{sc.bet}</b></>}</span>
               {settings.scoring === "rascal" && e.cannon && <ShotBadge />}
@@ -945,8 +991,8 @@ function RoundSummary({ players, results, totals, seq, isRascal, last, onNext, o
 
 /* ═══════════════════════ 3. Classement ═══════════════════════ */
 
-function BoardScreen({ players, settings, seq, results, ranking, hits, totals, finished, onBack }) {
-  const [showTable, setShowTable] = useState(false);
+function BoardScreen({ players, settings, seq, results, ranking, hits, totals, finished, onEdit, onBack }) {
+  const [showTable, setShowTable] = useState(true);
   const last = results[results.length - 1];
   const medal = { 1: "bg-[#F2B544] text-[#1B1204]", 2: "bg-[#C9D2E3] text-[#141B2A]", 3: "bg-[#C27A43] text-[#1B0F05]" };
 
@@ -997,26 +1043,6 @@ function BoardScreen({ players, settings, seq, results, ranking, hits, totals, f
         })}
       </ol>
 
-      <Panel className="flex flex-col gap-2.5 p-3.5">
-        <Title className="m-0 text-[24px]">Cap des scores</Title>
-        <div className="flex flex-wrap gap-x-3 gap-y-1">
-          {players.map((p) => <span key={p.id} className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-[#C3CCDD]"><span className="h-1 w-3 rounded" style={{ background: COLORS[p.color] }} />{p.name}</span>)}
-        </div>
-        <div className="relative h-[200px]">
-          <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="Évolution des scores cumulés par manche" className="block">
-            {grid.map((g) => <line key={g} x1={0} x2={W} y1={y(g)} y2={y(g)} stroke={g === 0 ? "#3A4A6B" : "#1A2540"} strokeDasharray={g === 0 ? "0" : "4 6"} vectorEffect="non-scaling-stroke" />)}
-            {players.map((p) => (
-              <motion.polyline key={p.id} fill="none" stroke={COLORS[p.color]} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke"
-                points={cum[p.id].map((v, i) => `${x(i)},${y(v)}`).join(" ")} initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: "easeOut" }} />
-            ))}
-          </svg>
-          {grid.map((g) => <span key={g} className="absolute left-1 -translate-y-full text-[11px] tabular-nums text-[#6F7C96]" style={{ top: `${(y(g) / H) * 100}%` }}>{g}</span>)}
-        </div>
-        <div className="flex justify-between">
-          {[0, ...seq.map((_, i) => i + 1)].map((n) => <span key={n} className="w-4 text-center text-[11px] tabular-nums text-[#6F7C96]">{n}</span>)}
-        </div>
-      </Panel>
-
       <Panel className="overflow-hidden">
         <button onClick={() => setShowTable((v) => !v)} aria-expanded={showTable} className={`flex min-h-14 w-full items-center justify-between px-3.5 ${FOCUS}`}>
           <Title as="span" className="text-[24px]">Manche par manche</Title>
@@ -1036,7 +1062,13 @@ function BoardScreen({ players, settings, seq, results, ranking, hits, totals, f
                   <tbody>
                     {results.map((r, i) => (
                       <tr key={i} className="border-t border-[#1E2A43]">
-                        <td className="sticky left-0 bg-[#111A2C] px-3 py-2 font-bold">{i + 1}<span className="ml-1 text-[11px] font-medium text-[#6F7C96]">{r.cards}c</span></td>
+                        <td className="sticky left-0 bg-[#111A2C] px-1.5 py-1">
+                          <button onClick={() => onEdit(i)} aria-label={`Corriger la manche ${i + 1}`}
+                            className={`flex min-h-11 items-center gap-1.5 rounded-lg px-1.5 text-left font-bold active:bg-[#1A2540] ${FOCUS}`}>
+                            <span>{i + 1}<span className="ml-1 text-[11px] font-medium text-[#6F7C96]">{r.cards}c</span></span>
+                            <Pencil size={12} className="text-[#F2B544]" aria-hidden />
+                          </button>
+                        </td>
                         {players.map((p) => (
                           <td key={p.id} className="whitespace-nowrap px-2.5 py-2 text-right">
                             <b className={ptsColor(r.res[p.id].total)}>{signed(r.res[p.id].total)}</b>
@@ -1052,10 +1084,30 @@ function BoardScreen({ players, settings, seq, results, ranking, hits, totals, f
                   </tbody>
                 </table>
               </div>
-              <p className="m-0 px-3.5 pb-3 pt-1 text-[12px] text-[#6F7C96]">Sous chaque score : pari / plis réalisés.</p>
+              <p className="m-0 px-3.5 pb-3 pt-1 text-[12px] text-[#6F7C96]">Sous chaque score : pari / plis réalisés. Touchez une manche (<Pencil size={10} className="inline align-[-1px]" />) pour la corriger.</p>
             </motion.div>
           )}
         </AnimatePresence>
+      </Panel>
+
+      <Panel className="flex flex-col gap-2.5 p-3.5">
+        <Title className="m-0 text-[24px]">Cap des scores</Title>
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+          {players.map((p) => <span key={p.id} className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-[#C3CCDD]"><span className="h-1 w-3 rounded" style={{ background: COLORS[p.color] }} />{p.name}</span>)}
+        </div>
+        <div className="relative h-[200px]">
+          <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="Évolution des scores cumulés par manche" className="block">
+            {grid.map((g) => <line key={g} x1={0} x2={W} y1={y(g)} y2={y(g)} stroke={g === 0 ? "#3A4A6B" : "#1A2540"} strokeDasharray={g === 0 ? "0" : "4 6"} vectorEffect="non-scaling-stroke" />)}
+            {players.map((p) => (
+              <motion.polyline key={p.id} fill="none" stroke={COLORS[p.color]} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke"
+                points={cum[p.id].map((v, i) => `${x(i)},${y(v)}`).join(" ")} initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: "easeOut" }} />
+            ))}
+          </svg>
+          {grid.map((g) => <span key={g} className="absolute left-1 -translate-y-full text-[11px] tabular-nums text-[#6F7C96]" style={{ top: `${(y(g) / H) * 100}%` }}>{g}</span>)}
+        </div>
+        <div className="flex justify-between">
+          {[0, ...seq.map((_, i) => i + 1)].map((n) => <span key={n} className="w-4 text-center text-[11px] tabular-nums text-[#6F7C96]">{n}</span>)}
+        </div>
       </Panel>
 
       <BottomBar>

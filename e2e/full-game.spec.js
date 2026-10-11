@@ -159,7 +159,7 @@ test("partie complète 1 → 10 manches : Yo-Ho-Ho, paris, plis, bonus, scores, 
     await expect(page.locator("ol > li").nth(i)).toContainText(name);
     await expect(page.locator("ol > li").nth(i)).toContainText(String(pts));
   }
-  await page.getByRole("button", { name: "Manche par manche" }).click();
+  // « Manche par manche » est ouvert par défaut.
   const sumRow = page.locator("tr").filter({ hasText: "Σ" });
   for (const name of PLAYERS) await expect(sumRow).toContainText(String(totals[name]));
   console.log("Totaux finaux :", JSON.stringify(totals));
@@ -291,4 +291,41 @@ test("Kraken (1 pli détruit au plus) et Harry le Géant (pari ±1)", async ({ p
   await expect(row("Bob")).toContainText("+20");
   await expect(row("Bob")).toContainText("1 annoncé (Harry)");
   await expect(row("Charlie")).toContainText("+20");
+});
+
+test("correction d'une manche passée depuis « Manche par manche »", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.getByRole("button", { name: /^Retirer Keryan/ }).click();
+  for (const [i, name] of PLAYERS.entries()) await page.getByLabel(`Nom du pirate ${i + 1}`).fill(name);
+  await page.getByRole("button", { name: /Hisser les voiles/ }).click();
+  await page.getByRole("dialog", { name: /Yo-Ho-Ho/ }).click();
+
+  // Manche 1 : Alice parie 1 et gagne le pli (+20), Bob et Charlie à 0 (+10 chacun).
+  await page.getByRole("button", { name: "Plus 1 · pari de Alice", exact: true }).click();
+  await page.getByRole("button", { name: /Bloquer les paris/ }).click();
+  await expect(page.getByText("Bob a ouvert le premier pli")).toBeVisible();
+  await page.getByRole("button", { name: "Plus 1 · plis de Alice", exact: true }).click();
+  await page.getByRole("button", { name: /Valider la manche/ }).click();
+  await page.getByRole("dialog", { name: "Résultats de la manche" }).getByRole("button", { name: /Manche 2/ }).click();
+  await page.getByRole("dialog", { name: /Yo-Ho-Ho/ }).click();
+
+  // Erreur découverte plus tard : c'est en fait Bob qui a pris le pli de la manche 1.
+  await page.getByRole("button", { name: "Classement", exact: true }).click();
+  await page.getByRole("button", { name: "Corriger la manche 1" }).click();
+  await expect(page.getByText("Correction de la manche 1")).toBeVisible();
+  await page.getByRole("button", { name: "Moins 1 · plis de Alice", exact: true }).click();
+  await page.getByRole("button", { name: "Plus 1 · plis de Bob", exact: true }).click();
+  await page.getByRole("button", { name: "Enregistrer la correction" }).click();
+
+  await expect(page.getByRole("heading", { name: "Classement" })).toBeVisible();
+  const sumRow = page.locator("tr").filter({ hasText: "Σ" });
+  await expect(sumRow.locator("td").nth(1)).toHaveText("-10"); // Alice : pari 1, 0 pli
+  await expect(sumRow.locator("td").nth(2)).toHaveText("-10"); // Bob : pari 0, 1 pli (−10 × 1 carte)
+  await expect(sumRow.locator("td").nth(3)).toHaveText("10");  // Charlie : zéro tenu
+
+  // La manche 2 en cours est restée intacte.
+  await page.getByRole("button", { name: /Retour à la manche/ }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Manche 2");
 });
