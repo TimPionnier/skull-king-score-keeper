@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import {
   BETS_STEP, HO_FINAL_STEP, HO_STEP, LIGHTNING_FLASH_SECONDS, STORM_STEP, YO_HO_FINISH_MS, YO_HO_SCHEDULE_MS, YO_STEP,
-  bindAudio, isMuted, playYoHo, setMuted, stopVoice, subscribeMuted,
+  bindAudio, getOutputLatencySeconds, isMuted, playYoHo, setMuted, stopVoice, subscribeMuted,
 } from "./audio.js";
 import { VARIANTS, TRICK_BONUS, NO_LOSS, assignHarry, hasHarry, freshEntries, roundSequence, scoreEntry, tricksComplete, expectedTricks } from "./scoring.js";
 
@@ -269,6 +269,7 @@ export default function SkullKingApp() {
   const [transition, setTransition] = useState(null);
   const nextId = useRef(1 + Math.max(4, ...players.map((p) => Number(p.id.slice(1)) || 0)));
   const timers = useRef([]);
+  const announcementPending = useRef(false);
   const clearTimers = () => { timers.current.forEach(clearTimeout); timers.current = []; };
   useEffect(() => clearTimers, []);
 
@@ -358,13 +359,21 @@ export default function SkullKingApp() {
   // Début de manche : Yo-Ho-Ho ! puis saisie des paris (la phase reste « bet »).
   const startYoHo = () => {
     clearTimers();
-    playYoHo(STORM_STEP, () => setCountdown(STORM_STEP));
+    announcementPending.current = true;
+    setCountdown(STORM_STEP);
+  };
+  // Le son ne part qu'une fois l'overlay réellement affiché : si l'écran met du temps à se construire,
+  // le tonnerre et les éclairs restent ensemble au lieu de se décaler.
+  const beginAnnouncement = () => {
+    if (!announcementPending.current) return;
+    announcementPending.current = false;
+    playYoHo(STORM_STEP);
     // L'affichage d'un mot attend que sa voix démarre vraiment, pour que son et image restent synchronisés.
     const showStep = (step) => () => { setCountdown(step); buzz(step === BETS_STEP ? 30 : 15); };
     YO_HO_SCHEDULE_MS.forEach(({ step, at }) => timers.current.push(setTimeout(() => playYoHo(step, showStep(step)), at)));
     timers.current.push(setTimeout(finishCountdown, YO_HO_FINISH_MS));
   };
-  const finishCountdown = () => { clearTimers(); stopVoice(); setCountdown(0); };
+  const finishCountdown = () => { clearTimers(); announcementPending.current = false; stopVoice(); setCountdown(0); };
 
   // Correction d'une manche passée : on met de côté la saisie en cours, on rouvre la manche choisie, puis on la remplace.
   const startEdit = (i) => {
@@ -441,7 +450,7 @@ export default function SkullKingApp() {
       </Sheet>
 
       <AnimatePresence>
-        {countdown > 0 && <CountdownOverlay key="cd" step={countdown} round={idx + 1} total={seq.length} cards={cards} onSkip={finishCountdown} />}
+        {countdown > 0 && <CountdownOverlay key="cd" step={countdown} round={idx + 1} total={seq.length} cards={cards} onShown={beginAnnouncement} onSkip={finishCountdown} />}
       </AnimatePresence>
     </div>
   );
@@ -947,11 +956,16 @@ function BonusSheet({ p, e, cards, settings, total, setEntry, onClose }) {
 /* ---------- Overlays ---------- */
 
 /** Début de manche : orage, puis « Yo-Ho-Ho ! » scandé en frappant la table, puis chacun montre son pari avec les doigts. */
-function CountdownOverlay({ step, round, total, cards, onSkip }) {
+function CountdownOverlay({ step, round, total, cards, onShown, onSkip }) {
   const words = { [YO_STEP]: ["Yo", "#E8ECF4"], [HO_STEP]: ["Ho", "#F2B544"], [HO_FINAL_STEP]: ["Ho !", "#E05168"] };
   const word = words[step];
+  // Après le premier affichage à l'écran, pas avant : requestAnimationFrame attend la peinture.
+  useEffect(() => {
+    const frame = requestAnimationFrame(onShown);
+    return () => cancelAnimationFrame(frame);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, pointerEvents: "auto" }} exit={EXIT_PASSTHROUGH} onClick={onSkip}
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, pointerEvents: "auto", transition: { duration: OVERLAY_FADE_IN_SECONDS } }} exit={EXIT_PASSTHROUGH} onClick={onSkip}
       role="dialog" aria-modal="true" aria-label="Yo-Ho-Ho ! Annonce des paris"
       className="fixed inset-0 z-40 flex flex-col items-center justify-center gap-6 overflow-hidden bg-[rgba(6,10,18,.95)] px-4 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] text-center">
       {LIGHTNING_STRIKES.map((strike, i) => <Lightning key={i} {...strike} at={LIGHTNING_FLASH_SECONDS[i]} />)}
@@ -959,7 +973,7 @@ function CountdownOverlay({ step, round, total, cards, onSkip }) {
       <div className="relative flex h-[112px] items-center justify-center">
         <AnimatePresence mode="wait">
           {word && (
-            <motion.span key={step} initial={{ opacity: 0, scale: 0.3, rotate: -10 }} animate={{ opacity: 1, scale: [0.3, 1.18, 1], rotate: [-10, 3, 0] }} exit={{ opacity: 0, scale: 1.4 }} transition={{ duration: 0.45 }}
+            <motion.span key={step} initial={{ opacity: 0, scale: 0.3, rotate: -10 }} animate={{ opacity: 1, scale: [0.3, 1.18, 1], rotate: [-10, 3, 0] }} exit={{ opacity: 0, transition: { duration: WORD_EXIT_SECONDS } }} transition={{ duration: WORD_ENTER_SECONDS }}
               className="font-['Pirata_One'] text-[112px] leading-none" style={{ color: word[1] }}>{word[0]}</motion.span>
           )}
           {step === BETS_STEP && (
@@ -978,6 +992,11 @@ const LIGHTNING_STRIKES = [
   { x: "62%", path: "M50 0 L38 28 L52 30 L30 66 L46 68 L20 120 L44 74 L30 72 L56 34 L42 32 Z", strength: 1 },
   { x: "24%", path: "M50 0 L40 24 L54 26 L36 60 L50 62 L32 100 L52 66 L40 64 L58 30 L46 28 Z", strength: 0.6 },
 ];
+// Le mot doit apparaître avec la voix : entrée rapide et sortie quasi instantanée du mot précédent.
+const WORD_ENTER_SECONDS = 0.25;
+const WORD_EXIT_SECONDS = 0.04;
+// Les éclairs sont dans l'overlay : il doit être opaque avant le premier éclair.
+const OVERLAY_FADE_IN_SECONDS = 0.1;
 const FLASH_TAIL_SECONDS = 0.5;
 const FLASH_FRAME_SECONDS = 0.04;
 const REDUCED_MOTION_FLASH_CAP = 0.15;
@@ -986,7 +1005,8 @@ const REDUCED_MOTION_FLASH_CAP = 0.15;
  * Flash plein écran et éclair dessiné, déclenchés à l'instant `at` (secondes après l'apparition de l'overlay) :
  * deux scintillements rapprochés puis une extinction, comme un vrai éclair.
  */
-function Lightning({ at, x, path, strength }) {
+function Lightning({ at: scheduledAt, x, path, strength }) {
+  const at = scheduledAt + getOutputLatencySeconds();
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const peak = reduceMotion ? REDUCED_MOTION_FLASH_CAP : strength;
   const duration = at + FLASH_TAIL_SECONDS;

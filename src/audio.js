@@ -382,7 +382,14 @@ export function playYoHo(step, onStart = () => {}) {
   } else {
     playDrum();
   }
-  onStart();
+  // Le son met un instant à sortir des haut-parleurs (beaucoup plus avec un casque Bluetooth) : l'image attend le même délai.
+  setTimeout(onStart, getOutputLatencySeconds() * 1000);
+}
+
+/** Délai entre l'instant où un son est programmé et celui où on l'entend vraiment. */
+export function getOutputLatencySeconds() {
+  if (!ctx) return 0;
+  return ctx.outputLatency || ctx.baseLatency || 0;
 }
 
 /* ---------- activation / coupure ---------- */
@@ -423,6 +430,9 @@ export function setMuted(next) {
 export function bindAudio() {
   if (gestureBound) return () => {};
   gestureBound = true;
+  // Le contexte peut être créé (en pause) avant le premier toucher : les échantillons sont alors déjà décodés
+  // quand arrive le premier tonnerre, qui sinon manquerait à l'appel.
+  ensureContext();
 
   const onPointerDown = (event) => {
     if (muted) return;
