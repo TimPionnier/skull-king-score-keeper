@@ -45,13 +45,27 @@ const DRUM_HIT_GAIN = 0.9;
 const DRUM_SOFT_GAIN = 0.45;
 const SOFT_DRUM_STEP = 3;
 
-const VOWEL_O_FORMANTS = [520, 920];
-const VOWEL_I_FORMANTS = [320, 2200];
+// Annonce des paris : orage, puis « Yo », « Ho », « Ho ! », puis « Montrez vos paris ».
+// L'écran et le son partent des mêmes valeurs pour rester synchronisés.
+export const STORM_STEP = 1;
+export const YO_STEP = 2;
+export const HO_STEP = 3;
+export const HO_FINAL_STEP = 4;
+export const BETS_STEP = 5;
+export const LIGHTNING_FLASH_SECONDS = [0.2, 0.6];
+export const YO_HO_SCHEDULE_MS = [
+  { step: YO_STEP, at: 1000 },
+  { step: HO_STEP, at: 1700 },
+  { step: HO_FINAL_STEP, at: 2400 },
+  { step: BETS_STEP, at: 3400 },
+];
+export const YO_HO_FINISH_MS = 4500;
 
 let ctx = null;
 let master = null;
 let musicBus = null;
 let sfxBus = null;
+let reverbInput = null;
 let muted = readMuted();
 let schedulerId = null;
 let nextStepTime = 0;
@@ -93,10 +107,14 @@ function ensureContext() {
   const reverbSend = ctx.createGain();
   reverb.buffer = createReverbImpulse();
   reverbSend.gain.value = REVERB_SEND;
-  musicBus.connect(reverbSend).connect(reverb).connect(master);
+  reverbInput = ctx.createGain();
+  musicBus.connect(reverbSend).connect(reverbInput);
+  reverbInput.connect(reverb).connect(master);
+  // Le compresseur évite la saturation quand beaucoup de pièces tintent en même temps.
+  const sfxCompressor = ctx.createDynamicsCompressor();
   sfxBus = ctx.createGain();
   sfxBus.gain.value = SFX_VOLUME;
-  sfxBus.connect(master);
+  sfxBus.connect(sfxCompressor).connect(master);
   return ctx;
 }
 
@@ -224,27 +242,35 @@ export function duckMusic(seconds) {
 
 /* ---------- pièces d'or ---------- */
 
-const CLINK_COUNT_MIN = 4;
-const CLINK_COUNT_MAX = 6;
-const CLINK_SPREAD_SECONDS = 0.22;
-const CLINK_BASE_HZ_MIN = 2400;
-const CLINK_BASE_HZ_MAX = 4200;
+// Un tas de pièces qui dégringole : beaucoup de petits chocs, plus denses au début, qui s'étalent ensuite.
+const CLINK_COUNT_MIN = 12;
+const CLINK_COUNT_MAX = 18;
+const CLINK_SPREAD_SECONDS = 0.55;
+const CLINK_SPREAD_CURVE = 1.7;
+const CLINK_BASE_HZ_MIN = 1900;
+const CLINK_BASE_HZ_MAX = 4300;
 // Partiels inharmoniques : ce qui donne le timbre du métal frappé plutôt que celui d'une note.
-const CLINK_PARTIAL_RATIOS = [1, 1.47, 2.09, 2.74];
-const CLINK_DECAY_SECONDS = 0.16;
+const CLINK_PARTIAL_RATIOS = [1, 1.47, 2.09];
+const CLINK_DECAY_SECONDS = 0.14;
+const RATTLE_SECONDS = 0.4;
+const RATTLE_GAIN = 0.1;
 
 function randomBetween(min, max) {
   return min + Math.random() * (max - min);
 }
 
-function createNoiseBurst(time, length, { type, frequency, gain, destination }) {
-  const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * length), ctx.sampleRate);
+function createNoiseBuffer(seconds) {
+  const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * seconds), ctx.sampleRate);
   const data = buffer.getChannelData(0);
   for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
+  return buffer;
+}
+
+function createNoiseBurst(time, length, { type, frequency, gain, destination }) {
   const noise = ctx.createBufferSource();
   const filter = ctx.createBiquadFilter();
   const amp = ctx.createGain();
-  noise.buffer = buffer;
+  noise.buffer = createNoiseBuffer(length);
   filter.type = type;
   filter.frequency.value = frequency;
   amp.gain.setValueAtTime(gain, time);
@@ -255,15 +281,15 @@ function createNoiseBurst(time, length, { type, frequency, gain, destination }) 
 
 function playClink(time, baseHz, loudness) {
   // Le choc : un court claquement aigu avant que le métal ne sonne.
-  createNoiseBurst(time, 0.02, { type: "highpass", frequency: 5000, gain: 0.5 * loudness, destination: sfxBus });
-  const decay = CLINK_DECAY_SECONDS * randomBetween(0.7, 1.3);
+  createNoiseBurst(time, 0.015, { type: "highpass", frequency: 5000, gain: 0.4 * loudness, destination: sfxBus });
+  const decay = CLINK_DECAY_SECONDS * randomBetween(0.6, 1.4);
   CLINK_PARTIAL_RATIOS.forEach((ratio, i) => {
     const osc = ctx.createOscillator();
     const amp = ctx.createGain();
     osc.type = "sine";
-    osc.frequency.value = baseHz * ratio * randomBetween(0.995, 1.005);
+    osc.frequency.value = baseHz * ratio * randomBetween(0.99, 1.01);
     amp.gain.setValueAtTime(0.0001, time);
-    amp.gain.exponentialRampToValueAtTime((0.3 * loudness) / (i + 1), time + 0.002);
+    amp.gain.exponentialRampToValueAtTime((0.22 * loudness) / (i + 1), time + 0.002);
     amp.gain.exponentialRampToValueAtTime(0.0001, time + decay / (i * 0.6 + 1));
     osc.connect(amp).connect(sfxBus);
     osc.start(time);
@@ -271,89 +297,199 @@ function playClink(time, baseHz, loudness) {
   });
 }
 
-/** Une poignée de pièces qui s'entrechoquent : plusieurs tintements désordonnés, de hauteurs variées. */
+/** Un tas de pièces d'or qui s'entrechoquent : une rafale de chocs métalliques sur un léger bruit de ferraille. */
 export function playCoin() {
   if (!isReady()) return;
   const now = ctx.currentTime;
   const clinks = Math.round(randomBetween(CLINK_COUNT_MIN, CLINK_COUNT_MAX));
   for (let i = 0; i < clinks; i += 1) {
-    const offset = i === 0 ? 0 : randomBetween(0.02, CLINK_SPREAD_SECONDS);
-    playClink(now + offset, randomBetween(CLINK_BASE_HZ_MIN, CLINK_BASE_HZ_MAX), randomBetween(0.5, 1));
+    const offset = i === 0 ? 0 : CLINK_SPREAD_SECONDS * Math.random() ** CLINK_SPREAD_CURVE;
+    playClink(now + offset, randomBetween(CLINK_BASE_HZ_MIN, CLINK_BASE_HZ_MAX), randomBetween(0.35, 1));
   }
+  createNoiseBurst(now, RATTLE_SECONDS, { type: "bandpass", frequency: 6500, gain: RATTLE_GAIN, destination: sfxBus });
+}
+
+/* ---------- orage ---------- */
+
+const THUNDER_CRACK_GAIN = 1;
+const THUNDER_RUMBLE_SECONDS = 2.6;
+const THUNDER_RUMBLE_GAIN = 0.9;
+const THUNDER_ROLL_DELAY_SECONDS = 0.05;
+
+/** Un coup de tonnerre : craquement sec au moment de l'éclair, puis grondement qui roule et s'éloigne. */
+function playThunderClap(time, strength) {
+  createNoiseBurst(time, 0.18, { type: "highpass", frequency: 1500, gain: THUNDER_CRACK_GAIN * strength, destination: sfxBus });
+  createNoiseBurst(time, 0.5, { type: "lowpass", frequency: 900, gain: 0.8 * strength, destination: sfxBus });
+
+  const rumbleSeconds = THUNDER_RUMBLE_SECONDS * strength;
+  const rumbleStart = time + THUNDER_ROLL_DELAY_SECONDS;
+  const noise = ctx.createBufferSource();
+  const filter = ctx.createBiquadFilter();
+  const amp = ctx.createGain();
+  noise.buffer = createNoiseBuffer(rumbleSeconds);
+  filter.type = "lowpass";
+  filter.Q.value = 2;
+  filter.frequency.setValueAtTime(700, rumbleStart);
+  filter.frequency.exponentialRampToValueAtTime(90, rumbleStart + rumbleSeconds);
+  amp.gain.setValueAtTime(0.0001, rumbleStart);
+  amp.gain.exponentialRampToValueAtTime(THUNDER_RUMBLE_GAIN * strength, rumbleStart + 0.08);
+  // Le grondement « roule » : de légères remontées d'intensité avant de s'éteindre.
+  amp.gain.exponentialRampToValueAtTime(0.4 * strength, rumbleStart + rumbleSeconds * 0.3);
+  amp.gain.exponentialRampToValueAtTime(0.7 * strength, rumbleStart + rumbleSeconds * 0.45);
+  amp.gain.exponentialRampToValueAtTime(0.0001, rumbleStart + rumbleSeconds);
+  noise.connect(filter).connect(amp).connect(sfxBus);
+  noise.start(rumbleStart);
+}
+
+/**
+ * Tonnerre synchronisé avec les éclairs de l'écran : chaque éclair de LIGHTNING_FLASH_SECONDS
+ * est accompagné d'un coup de tonnerre au même instant.
+ */
+function playThunder() {
+  const now = ctx.currentTime;
+  LIGHTNING_FLASH_SECONDS.forEach((offset, i) => {
+    playThunderClap(now + offset, i === 0 ? 1 : 0.55);
+  });
 }
 
 /* ---------- Yo-Ho-Ho ---------- */
 
-function createBreath(time, length) {
-  const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * length), ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
-  const noise = ctx.createBufferSource();
-  const filter = ctx.createBiquadFilter();
-  const amp = ctx.createGain();
-  noise.buffer = buffer;
-  filter.type = "bandpass";
-  filter.frequency.value = 1800;
-  amp.gain.setValueAtTime(0.0001, time);
-  amp.gain.exponentialRampToValueAtTime(0.25, time + length * 0.4);
-  amp.gain.exponentialRampToValueAtTime(0.0001, time + length);
-  noise.connect(filter).connect(amp).connect(sfxBus);
-  noise.start(time);
+const VOCAL_TRACT_SCALE = 0.86;
+const VOICE_FORMANTS_O = [450, 800, 2600];
+const VOICE_FORMANTS_Y = [300, 2200, 3000];
+const FORMANT_Q = [5, 8, 10];
+const FORMANT_GAIN = [1, 0.7, 0.25];
+const HARMONIC_COUNT = 40;
+const HARMONIC_ROLLOFF = 1.3;
+const GROWL_HZ = 38;
+const GROWL_DEPTH = 0.3;
+const VOICE_DRIVE = 2.5;
+const VOICE_REVERB_SEND = 0.3;
+const VOICE_ATTACK_SECONDS = 0.08;
+const BREATH_SECONDS = 0.14;
+const BREATH_LEAD_SECONDS = 0.1;
+const ASPIRATION_GAIN = 0.07;
+
+let voiceWave = null;
+
+/** Timbre de la glotte : des harmoniques qui décroissent plus vite qu'une dent de scie, donc plus rond. */
+function getVoiceWave() {
+  if (voiceWave) return voiceWave;
+  const real = new Float32Array(HARMONIC_COUNT + 1);
+  const imag = new Float32Array(HARMONIC_COUNT + 1);
+  for (let n = 1; n <= HARMONIC_COUNT; n += 1) imag[n] = 1 / n ** HARMONIC_ROLLOFF;
+  voiceWave = ctx.createPeriodicWave(real, imag);
+  return voiceWave;
+}
+
+function createSaturationCurve() {
+  const samples = 1024;
+  const curve = new Float32Array(samples);
+  for (let i = 0; i < samples; i += 1) {
+    const x = (i / (samples - 1)) * 2 - 1;
+    curve[i] = Math.tanh(VOICE_DRIVE * x);
+  }
+  return curve;
 }
 
 /**
- * Voix grave de pirate par synthèse à formants : une onde en dent de scie passée dans deux filtres
- * passe-bande qui imitent la voyelle « o ».
+ * Voix de corsaire très grave : source glottale, hauteur légèrement instable, grondement de gorge
+ * (modulation d'amplitude), trois formants plus bas qu'une voix normale, un souffle et de la saturation.
  */
-function sing({ hz, endHz, length, startVowel, breath }) {
-  const start = ctx.currentTime + (breath ? 0.06 : 0);
-  if (breath) createBreath(ctx.currentTime, 0.1);
+function sing({ hz, endHz, length, startsWithY, breath }) {
+  const start = ctx.currentTime + (breath ? BREATH_LEAD_SECONDS : 0);
+  if (breath) {
+    createNoiseBurst(ctx.currentTime, BREATH_SECONDS, { type: "bandpass", frequency: 1400, gain: 0.3, destination: sfxBus });
+  }
 
-  const osc = ctx.createOscillator();
-  const vibrato = ctx.createOscillator();
-  const vibratoDepth = ctx.createGain();
-  const amp = ctx.createGain();
-  osc.type = "sawtooth";
-  osc.frequency.setValueAtTime(hz, start);
-  osc.frequency.exponentialRampToValueAtTime(endHz, start + length);
-  vibrato.frequency.value = 5.5;
-  vibratoDepth.gain.value = hz * 0.015;
-  vibrato.connect(vibratoDepth).connect(osc.frequency);
+  const source = ctx.createOscillator();
+  source.setPeriodicWave(getVoiceWave());
+  source.frequency.setValueAtTime(hz, start);
+  source.frequency.exponentialRampToValueAtTime(endHz, start + length);
 
-  amp.gain.setValueAtTime(0.0001, start);
-  amp.gain.exponentialRampToValueAtTime(0.9, start + 0.06);
-  amp.gain.setValueAtTime(0.9, start + length * 0.65);
-  amp.gain.exponentialRampToValueAtTime(0.0001, start + length);
-
-  VOWEL_O_FORMANTS.forEach((target, i) => {
-    const filter = ctx.createBiquadFilter();
-    filter.type = "bandpass";
-    filter.Q.value = 6;
-    filter.frequency.setValueAtTime(startVowel ? VOWEL_I_FORMANTS[i] : target, start);
-    filter.frequency.exponentialRampToValueAtTime(target, start + length * 0.35);
-    const formantGain = ctx.createGain();
-    formantGain.gain.value = i === 0 ? 1 : 0.6;
-    osc.connect(filter).connect(formantGain).connect(amp);
+  // Deux modulations lentes et incommensurables : la hauteur ne reste jamais parfaitement stable.
+  const wobbles = [[5.3, 0.012], [2.1, 0.02]].map(([rate, depth]) => {
+    const lfo = ctx.createOscillator();
+    const lfoDepth = ctx.createGain();
+    lfo.frequency.value = rate;
+    lfoDepth.gain.value = hz * depth;
+    lfo.connect(lfoDepth).connect(source.frequency);
+    return lfo;
   });
 
+  const voiceBus = ctx.createGain();
+  voiceBus.gain.value = 1;
+  source.connect(voiceBus);
+
+  // Souffle continu dans la voix : c'est lui qui retire l'aspect « onde pure ».
+  const aspiration = ctx.createBufferSource();
+  const aspirationGain = ctx.createGain();
+  aspiration.buffer = createNoiseBuffer(length);
+  aspirationGain.gain.value = ASPIRATION_GAIN;
+  aspiration.connect(aspirationGain).connect(voiceBus);
+
+  const formantMix = ctx.createGain();
+  VOICE_FORMANTS_O.forEach((target, i) => {
+    const filter = ctx.createBiquadFilter();
+    const formantGain = ctx.createGain();
+    const from = (startsWithY ? VOICE_FORMANTS_Y[i] : target) * VOCAL_TRACT_SCALE;
+    filter.type = "bandpass";
+    filter.Q.value = FORMANT_Q[i];
+    filter.frequency.setValueAtTime(from, start);
+    filter.frequency.exponentialRampToValueAtTime(target * VOCAL_TRACT_SCALE, start + length * 0.4);
+    formantGain.gain.value = FORMANT_GAIN[i];
+    voiceBus.connect(filter).connect(formantGain).connect(formantMix);
+  });
+
+  const shaper = ctx.createWaveShaper();
+  shaper.curve = createSaturationCurve();
+  const tone = ctx.createBiquadFilter();
+  tone.type = "lowpass";
+  tone.frequency.value = 3200;
+
+  const amp = ctx.createGain();
+  amp.gain.setValueAtTime(0.0001, start);
+  amp.gain.exponentialRampToValueAtTime(0.9, start + VOICE_ATTACK_SECONDS);
+  amp.gain.setValueAtTime(0.9, start + length * 0.6);
+  amp.gain.exponentialRampToValueAtTime(0.0001, start + length);
+
+  // Grondement de gorge : l'amplitude vibre très vite, comme une voix rauque.
+  const growl = ctx.createOscillator();
+  const growlDepth = ctx.createGain();
+  const growlGain = ctx.createGain();
+  growl.frequency.value = GROWL_HZ;
+  growlDepth.gain.value = GROWL_DEPTH;
+  growlGain.gain.value = 1 - GROWL_DEPTH;
+  growl.connect(growlDepth).connect(growlGain.gain);
+
+  formantMix.connect(shaper).connect(tone).connect(growlGain).connect(amp);
   amp.connect(sfxBus);
-  osc.start(start);
-  vibrato.start(start);
-  osc.stop(start + length + 0.05);
-  vibrato.stop(start + length + 0.05);
+  const reverbTap = ctx.createGain();
+  reverbTap.gain.value = VOICE_REVERB_SEND;
+  amp.connect(reverbTap).connect(reverbInput);
+
+  const end = start + length + 0.05;
+  [source, aspiration, growl, ...wobbles].forEach((node) => {
+    node.start(start);
+    if (node !== aspiration) node.stop(end);
+  });
 }
 
-const YO_HO_STEPS = {
-  1: { hz: 147, endHz: 139, length: 0.5, startVowel: true, breath: false },
-  2: { hz: 123, endHz: 117, length: 0.5, startVowel: false, breath: true },
-  3: { hz: 98, endHz: 82, length: 0.8, startVowel: false, breath: true },
+const VOICE_BY_STEP = {
+  [YO_STEP]: { hz: 92, endHz: 84, length: 0.6, startsWithY: true, breath: false },
+  [HO_STEP]: { hz: 78, endHz: 72, length: 0.6, startsWithY: false, breath: true },
+  [HO_FINAL_STEP]: { hz: 66, endHz: 50, length: 0.95, startsWithY: false, breath: true },
 };
 
-/** Étapes 1 à 3 : « Yo », « Ho », « Ho ! ». Étape 4 : coup de tambour pour « Montrez vos paris ». */
+/** Lance le son de l'étape de l'annonce : tonnerre, « Yo », « Ho », « Ho ! » ou coup de tambour. */
 export function playYoHo(step) {
   if (!isReady()) return;
-  if (step === 1) duckMusic(3);
-  const voice = YO_HO_STEPS[step];
+  if (step === STORM_STEP) {
+    duckMusic(YO_HO_FINISH_MS / 1000);
+    playThunder();
+    return;
+  }
+  const voice = VOICE_BY_STEP[step];
   if (voice) {
     sing(voice);
     return;

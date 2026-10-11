@@ -14,7 +14,10 @@ import {
   Anchor, Check, ChevronDown, ChevronLeft, Coins, Compass, Crown, Flame, Gem, Ghost as GhostIcon,
   BicepsFlexed, Lock, Minus, Plus, RotateCcw, Ship, Skull, Settings, Sparkles, Swords, Target, UserPlus, Waves, X, Fish, Bird, Layers, Palette, Bomb, Pencil, Trophy, Volume2, VolumeX,
 } from "lucide-react";
-import { bindAudio, isMuted, playYoHo, setMuted, subscribeMuted } from "./audio.js";
+import {
+  BETS_STEP, HO_FINAL_STEP, HO_STEP, LIGHTNING_FLASH_SECONDS, STORM_STEP, YO_HO_FINISH_MS, YO_HO_SCHEDULE_MS, YO_STEP,
+  bindAudio, isMuted, playYoHo, setMuted, subscribeMuted,
+} from "./audio.js";
 import { VARIANTS, TRICK_BONUS, NO_LOSS, assignHarry, hasHarry, freshEntries, roundSequence, scoreEntry, tricksComplete, expectedTricks } from "./scoring.js";
 
 /* ═══════════════════════ Données & règles ═══════════════════════ */
@@ -355,10 +358,10 @@ export default function SkullKingApp() {
   // Début de manche : Yo-Ho-Ho ! puis saisie des paris (la phase reste « bet »).
   const startYoHo = () => {
     clearTimers();
-    setCountdown(1);
-    playYoHo(1);
-    [2, 3, 4].forEach((n, i) => timers.current.push(setTimeout(() => { setCountdown(n); playYoHo(n); buzz(n === 4 ? 30 : 15); }, 650 * (i + 1))));
-    timers.current.push(setTimeout(finishCountdown, 650 * 3 + 1100));
+    setCountdown(STORM_STEP);
+    playYoHo(STORM_STEP);
+    YO_HO_SCHEDULE_MS.forEach(({ step, at }) => timers.current.push(setTimeout(() => { setCountdown(step); playYoHo(step); buzz(step === BETS_STEP ? 30 : 15); }, at)));
+    timers.current.push(setTimeout(finishCountdown, YO_HO_FINISH_MS));
   };
   const finishCountdown = () => { clearTimers(); setCountdown(0); };
 
@@ -942,25 +945,70 @@ function BonusSheet({ p, e, cards, settings, total, setEntry, onClose }) {
 
 /* ---------- Overlays ---------- */
 
-/** Début de manche : « Yo-Ho-Ho ! » scandé en frappant la table, puis chacun montre son pari avec les doigts. */
+/** Début de manche : orage, puis « Yo-Ho-Ho ! » scandé en frappant la table, puis chacun montre son pari avec les doigts. */
 function CountdownOverlay({ step, round, total, cards, onSkip }) {
-  const words = { 1: ["Yo", "#E8ECF4"], 2: ["Ho", "#F2B544"], 3: ["Ho !", "#E05168"] };
+  const words = { [YO_STEP]: ["Yo", "#E8ECF4"], [HO_STEP]: ["Ho", "#F2B544"], [HO_FINAL_STEP]: ["Ho !", "#E05168"] };
+  const word = words[step];
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1, pointerEvents: "auto" }} exit={EXIT_PASSTHROUGH} onClick={onSkip}
       role="dialog" aria-modal="true" aria-label="Yo-Ho-Ho ! Annonce des paris"
-      className="fixed inset-0 z-40 flex flex-col items-center justify-center gap-6 bg-[rgba(6,10,18,.95)] px-4 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] text-center">
-      <span className="text-[13px] font-bold uppercase tracking-[.25em] text-[#2DD4BF] tabular-nums">Manche {round} / {total} · {cards} carte{cards > 1 ? "s" : ""}</span>
-      <AnimatePresence mode="wait">
-        {step < 4 ? (
-          <motion.span key={step} initial={{ opacity: 0, scale: 0.3, rotate: -10 }} animate={{ opacity: 1, scale: [0.3, 1.18, 1], rotate: [-10, 3, 0] }} exit={{ opacity: 0, scale: 1.4 }} transition={{ duration: 0.45 }}
-            className="font-['Pirata_One'] text-[112px] leading-none" style={{ color: words[step][1] }}>{words[step][0]}</motion.span>
-        ) : (
-          <motion.span key="bets" initial={{ opacity: 0, scale: 0.7 }} animate={{ opacity: 1, scale: 1 }}
-            className="font-['Pirata_One'] text-[56px] leading-none text-[#F2B544]">Montrez vos paris !</motion.span>
-        )}
-      </AnimatePresence>
-      <span className="text-[14px] text-[#6F7C96]">Frappez trois fois sur la table ! · touchez pour passer</span>
+      className="fixed inset-0 z-40 flex flex-col items-center justify-center gap-6 overflow-hidden bg-[rgba(6,10,18,.95)] px-4 pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] text-center">
+      {LIGHTNING_STRIKES.map((strike, i) => <Lightning key={i} {...strike} at={LIGHTNING_FLASH_SECONDS[i]} />)}
+      <span className="relative text-[13px] font-bold uppercase tracking-[.25em] text-[#2DD4BF] tabular-nums">Manche {round} / {total} · {cards} carte{cards > 1 ? "s" : ""}</span>
+      <div className="relative flex h-[112px] items-center justify-center">
+        <AnimatePresence mode="wait">
+          {word && (
+            <motion.span key={step} initial={{ opacity: 0, scale: 0.3, rotate: -10 }} animate={{ opacity: 1, scale: [0.3, 1.18, 1], rotate: [-10, 3, 0] }} exit={{ opacity: 0, scale: 1.4 }} transition={{ duration: 0.45 }}
+              className="font-['Pirata_One'] text-[112px] leading-none" style={{ color: word[1] }}>{word[0]}</motion.span>
+          )}
+          {step === BETS_STEP && (
+            <motion.span key="bets" initial={{ opacity: 0, scale: 0.7 }} animate={{ opacity: 1, scale: 1 }}
+              className="font-['Pirata_One'] text-[56px] leading-none text-[#F2B544]">Montrez vos paris !</motion.span>
+          )}
+        </AnimatePresence>
+      </div>
+      <span className="relative text-[14px] text-[#6F7C96]">Frappez trois fois sur la table ! · touchez pour passer</span>
     </motion.div>
+  );
+}
+
+// Un éclair par coup de tonnerre : même instant que LIGHTNING_FLASH_SECONDS dans audio.js.
+const LIGHTNING_STRIKES = [
+  { x: "62%", path: "M50 0 L38 28 L52 30 L30 66 L46 68 L20 120 L44 74 L30 72 L56 34 L42 32 Z", strength: 1 },
+  { x: "24%", path: "M50 0 L40 24 L54 26 L36 60 L50 62 L32 100 L52 66 L40 64 L58 30 L46 28 Z", strength: 0.6 },
+];
+const FLASH_TAIL_SECONDS = 0.5;
+const FLASH_FRAME_SECONDS = 0.04;
+const REDUCED_MOTION_FLASH_CAP = 0.15;
+
+/**
+ * Flash plein écran et éclair dessiné, déclenchés à l'instant `at` (secondes après l'apparition de l'overlay) :
+ * deux scintillements rapprochés puis une extinction, comme un vrai éclair.
+ */
+function Lightning({ at, x, path, strength }) {
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const peak = reduceMotion ? REDUCED_MOTION_FLASH_CAP : strength;
+  const duration = at + FLASH_TAIL_SECONDS;
+  const frames = [
+    [0, 0],
+    [at - 0.001, 0],
+    [at, peak],
+    [at + FLASH_FRAME_SECONDS, peak * 0.2],
+    [at + FLASH_FRAME_SECONDS * 2, peak * 0.85],
+    [at + FLASH_TAIL_SECONDS, 0],
+  ];
+  const animate = { opacity: frames.map(([, opacity]) => opacity) };
+  const transition = { duration, ease: "linear", times: frames.map(([time]) => time / duration) };
+  return (
+    <>
+      <motion.div aria-hidden className="pointer-events-none absolute inset-0 bg-[#CFE3FF]" initial={{ opacity: 0 }} animate={animate} transition={transition} />
+      {!reduceMotion && (
+        <motion.svg aria-hidden viewBox="0 0 100 120" preserveAspectRatio="none" className="pointer-events-none absolute top-0 h-[55%] w-[34%] -translate-x-1/2 text-white"
+          style={{ left: x, filter: "drop-shadow(0 0 12px #9CC4FF)" }} initial={{ opacity: 0 }} animate={animate} transition={transition}>
+          <path d={path} fill="currentColor" />
+        </motion.svg>
+      )}
+    </>
   );
 }
 
