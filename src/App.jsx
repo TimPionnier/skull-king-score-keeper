@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import {
   BETS_STEP, HO_FINAL_STEP, HO_STEP, LIGHTNING_FLASH_SECONDS, STORM_STEP, YO_HO_FINISH_MS, YO_HO_SCHEDULE_MS, YO_STEP,
-  bindAudio, isMuted, playYoHo, setMuted, subscribeMuted,
+  bindAudio, isMuted, playYoHo, setMuted, stopSpeaking, subscribeMuted,
 } from "./audio.js";
 import { VARIANTS, TRICK_BONUS, NO_LOSS, assignHarry, hasHarry, freshEntries, roundSequence, scoreEntry, tricksComplete, expectedTricks } from "./scoring.js";
 
@@ -358,12 +358,13 @@ export default function SkullKingApp() {
   // Début de manche : Yo-Ho-Ho ! puis saisie des paris (la phase reste « bet »).
   const startYoHo = () => {
     clearTimers();
-    setCountdown(STORM_STEP);
-    playYoHo(STORM_STEP);
-    YO_HO_SCHEDULE_MS.forEach(({ step, at }) => timers.current.push(setTimeout(() => { setCountdown(step); playYoHo(step); buzz(step === BETS_STEP ? 30 : 15); }, at)));
+    playYoHo(STORM_STEP, () => setCountdown(STORM_STEP));
+    // L'affichage d'un mot attend que sa voix démarre vraiment, pour que son et image restent synchronisés.
+    const showStep = (step) => () => { setCountdown(step); buzz(step === BETS_STEP ? 30 : 15); };
+    YO_HO_SCHEDULE_MS.forEach(({ step, at }) => timers.current.push(setTimeout(() => playYoHo(step, showStep(step)), at)));
     timers.current.push(setTimeout(finishCountdown, YO_HO_FINISH_MS));
   };
-  const finishCountdown = () => { clearTimers(); setCountdown(0); };
+  const finishCountdown = () => { clearTimers(); stopSpeaking(); setCountdown(0); };
 
   // Correction d'une manche passée : on met de côté la saisie en cours, on rouvre la manche choisie, puis on la remplace.
   const startEdit = (i) => {
