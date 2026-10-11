@@ -248,7 +248,7 @@ export default function SkullKingApp() {
     if (document.getElementById("sk-fonts")) return;
     const l = document.createElement("link");
     l.id = "sk-fonts"; l.rel = "stylesheet";
-    l.href = "https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Pirata+One&display=swap";
+    l.href = "https://fonts.googleapis.com/css2?family=Pirata+One&display=swap";
     document.head.appendChild(l);
   }, []);
 
@@ -416,7 +416,7 @@ export default function SkullKingApp() {
   const bonusPlayer = players.find((p) => p.id === bonusFor);
 
   return (
-    <div className="relative min-h-[100dvh] overflow-x-clip bg-[#0A101C] font-['Outfit',system-ui,sans-serif] text-[#E8ECF4] antialiased">
+    <div className="relative min-h-[100dvh] overflow-x-clip bg-[#0A101C] font-['Pirata_One',serif] [font-synthesis:none] text-[#E8ECF4] antialiased">
       <AnimatePresence mode="wait">
         {screen === "setup" && (
           <SetupScreen key="setup" {...{ players, settings, seq, updPlayer, addPlayer, removePlayer, setSetting, launch }}
