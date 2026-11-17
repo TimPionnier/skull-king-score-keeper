@@ -329,3 +329,80 @@ test("correction d'une manche passée depuis « Manche par manche »", async ({ 
   await page.getByRole("button", { name: /Retour à la manche/ }).click();
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Manche 2");
 });
+
+test("graphique des scores : courbe au premier plan avec nom et points, à côté des manches sur grand écran", async ({ page }, testInfo) => {
+  await page.goto("./");
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.getByRole("button", { name: /^Retirer Keryan/ }).click();
+  for (const [i, name] of PLAYERS.entries()) await page.getByLabel(`Nom du pirate ${i + 1}`).fill(name);
+  await page.getByRole("button", { name: /Hisser les voiles/ }).click();
+  await page.getByRole("dialog", { name: /Yo-Ho-Ho/ }).click();
+
+  // Manche 1 : Alice parie 1 et gagne le pli (+20), Bob et Charlie à 0 (+10 chacun).
+  await page.getByRole("button", { name: "Plus 1 · pari de Alice", exact: true }).click();
+  await page.getByRole("button", { name: /Bloquer les paris/ }).click();
+  await expect(page.getByText("Bob a ouvert le premier pli")).toBeVisible();
+  await page.getByRole("button", { name: "Plus 1 · plis de Alice", exact: true }).click();
+  await page.getByRole("button", { name: /Valider la manche/ }).click();
+  await page.getByRole("dialog", { name: "Résultats de la manche" }).getByRole("button", { name: /Manche 2/ }).click();
+  await page.getByRole("dialog", { name: /Yo-Ho-Ho/ }).click();
+
+  // Écran de saisie : le graphique est visible à côté de la manche sur grand écran seulement.
+  const isDesktop = testInfo.project.name === "desktop-1920";
+  await expect(page.getByTestId("score-chart")).toBeVisible({ visible: isDesktop });
+  await page.getByRole("button", { name: "Classement", exact: true }).click();
+
+  const chart = page.getByTestId("score-chart");
+  await expect(chart).toBeVisible();
+  await chart.evaluate((el) => el.scrollIntoView({ block: "center" }));
+
+  // Grand écran : tableau des manches et graphique côte à côte, à la même hauteur.
+  if (testInfo.project.name === "desktop-1920") {
+    const tableBox = await page.locator("table").boundingBox();
+    const chartBox = await chart.boundingBox();
+    expect(chartBox.x).toBeGreaterThan(tableBox.x + tableBox.width - 1);
+    expect(Math.abs(chartBox.y - tableBox.y)).toBeLessThan(120);
+  }
+
+  // Les points sont aux abscisses exactes : chaque courbe a 2 points (départ + manche 1) et ceux de la manche 1 sont alignés.
+  const aliceDots = chart.locator('g[data-player="Alice"] circle');
+  await expect(aliceDots).toHaveCount(2);
+  const aliceDot = await aliceDots.nth(1).boundingBox();
+  const bobDot = await chart.locator('g[data-player="Bob"] circle').nth(1).boundingBox();
+  expect(Math.abs(aliceDot.x - bobDot.x)).toBeLessThan(1);
+
+  // Clic sur la courbe d'Alice (+20 : la plus haute) : premier plan, bulle avec son nom et son total.
+  const target = aliceDot;
+  await page.mouse.click(target.x + target.width / 2, target.y + target.height / 2);
+  const tooltip = page.getByTestId("score-chart-tooltip");
+  await expect(tooltip).toContainText("Alice");
+  await expect(tooltip).toContainText("20 pts");
+  await expect(chart.locator('g[data-player="Alice"]')).toHaveAttribute("data-active", "true");
+  expect(await chart.locator("g[data-player]").last().getAttribute("data-player")).toBe("Alice");
+
+  // Un second clic au même endroit désélectionne.
+  await page.mouse.click(target.x + target.width / 2, target.y + target.height / 2);
+  await page.mouse.move(2, 2);
+  await expect(tooltip).toHaveCount(0);
+
+  // Via la légende (clavier / tactile) : Bob passe au premier plan.
+  await page.getByRole("button", { name: "Bob", exact: true }).click();
+  await expect(tooltip).toContainText("Bob");
+  expect(await chart.locator("g[data-player]").last().getAttribute("data-player")).toBe("Bob");
+});
+
+test("les règles s'ouvrent depuis les réglages et se referment", async ({ page }) => {
+  await page.goto("./");
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.getByRole("button", { name: "Règles du jeu" }).click();
+  const rules = page.getByRole("dialog", { name: "Règles du jeu" });
+  await expect(rules).toBeVisible();
+  for (const term of ["Skull King", "Cartes Butin", "Kraken et Baleine blanche", "Pouvoirs des pirates", "Harry le Géant", "Flambeur"]) {
+    await expect(rules.getByText(term).first()).toBeAttached();
+  }
+  await page.keyboard.press("Escape");
+  await page.mouse.click(5, 5);
+  await expect(rules).toHaveCount(0);
+});
