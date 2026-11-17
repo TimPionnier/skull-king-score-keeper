@@ -12,12 +12,14 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { AnimatePresence, motion, useDragControls } from "framer-motion";
 import {
   Anchor, Check, ChevronDown, ChevronLeft, Coins, Compass, Crown, Flame, Gem, Ghost as GhostIcon,
-  BicepsFlexed, Lock, Minus, Plus, RotateCcw, Ship, Skull, Settings, Sparkles, Swords, Target, UserPlus, Waves, X, Fish, Bird, Layers, Palette, Bomb, Pencil, Trophy, Volume2, VolumeX,
+  BicepsFlexed, Lock, Minus, Plus, RotateCcw, Ship, Skull, Settings, Sparkles, Swords, Target, UserPlus, Waves, X, Fish, Bird, Layers, Palette, Bomb, BookOpen, Pencil, Trophy, Volume2, VolumeX,
 } from "lucide-react";
 import {
   BETS_STEP, HO_FINAL_STEP, HO_STEP, LIGHTNING_FLASH_SECONDS, STORM_STEP, YO_HO_FINISH_MS, YO_HO_SCHEDULE_MS, YO_STEP,
   bindAudio, getOutputLatencySeconds, isMuted, playYoHo, setMuted, stopVoice, subscribeMuted,
 } from "./audio.js";
+import { RulesContent } from "./components/RulesContent/index.jsx";
+import { ScoreChart } from "./components/ScoreChart/index.jsx";
 import { VARIANTS, TRICK_BONUS, NO_LOSS, assignHarry, hasHarry, freshEntries, roundSequence, scoreEntry, tricksComplete, expectedTricks } from "./scoring.js";
 
 /* ═══════════════════════ Données & règles ═══════════════════════ */
@@ -424,7 +426,7 @@ export default function SkullKingApp() {
         )}
         {screen === "game" && (
           <GameScreen key="game"
-            {...{ players, settings, seq, idx, cards, phase, setPhase, entries, setEntry, setHarry, lost, setLost, rankOf, validateRound }}
+            {...{ players, settings, seq, results, idx, cards, phase, setPhase, entries, setEntry, setHarry, lost, setLost, rankOf, validateRound }}
             totals={gameTotals} roundIndex={editing ? editIdx : roundIndex} doneCount={roundIndex} editing={editing}
             onBonus={setBonusFor} onBoard={() => setScreen("board")} onSetup={() => setScreen("setup")} onCancelEdit={() => stopEdit(false)} />
         )}
@@ -460,6 +462,7 @@ export default function SkullKingApp() {
 
 function SetupScreen({ players, settings, seq, canResume, crewChangedDuringGame, updPlayer, addPlayer, removePlayer, setSetting, launch, onResume }) {
   const [editing, setEditing] = useState(null);
+  const [rulesOpen, setRulesOpen] = useState(false);
   const sel = "border-[#F2B544] bg-[#2A2112] text-[#FCE7B8]";
   const off = "border-[#1E2A43] bg-[#0E1626] text-[#C3CCDD]";
   const variant = VARIANTS.find((v) => v.id === settings.variant) ?? VARIANTS[0];
@@ -482,7 +485,12 @@ function SetupScreen({ players, settings, seq, canResume, crewChangedDuringGame,
           <Title as="h1" className="m-0 text-[44px] leading-[.95] text-[#F2B544]">Skull King</Title>
           <p className="m-0 text-[15px] text-[#9AA6BF]">Le carnet de bord du capitaine</p>
         </div>
-        <SoundToggle className="ml-auto" />
+        <div className="ml-auto flex flex-none items-center gap-1">
+          <Ghost onClick={() => setRulesOpen(true)} aria-label="Règles du jeu" className="grid h-11 w-11 flex-none place-items-center">
+            <BookOpen size={20} strokeWidth={2} aria-hidden="true" />
+          </Ghost>
+          <SoundToggle />
+        </div>
       </header>
 
       {canResume && (
@@ -636,13 +644,17 @@ function SetupScreen({ players, settings, seq, canResume, crewChangedDuringGame,
           </div>
         )}
       </Sheet>
+
+      <Sheet open={rulesOpen} onClose={() => setRulesOpen(false)} label="Règles du jeu">
+        <RulesContent />
+      </Sheet>
     </motion.div>
   );
 }
 
 /* ═══════════════════════ 2. Jeu (saisie par manche) ═══════════════════════ */
 
-function GameScreen({ players, settings, seq, idx, cards, roundIndex, doneCount, editing, phase, setPhase, entries, setEntry, setHarry, lost, setLost, totals, rankOf, validateRound, onBonus, onBoard, onSetup, onCancelEdit }) {
+function GameScreen({ players, settings, seq, results, idx, cards, roundIndex, doneCount, editing, phase, setPhase, entries, setEntry, setHarry, lost, setLost, totals, rankOf, validateRound, onBonus, onBoard, onSetup, onCancelEdit }) {
   const n = players.length;
   const isRascal = settings.scoring === "rascal";
   const dealerIdx = idx % n, starterIdx = (idx + 1) % n;
@@ -659,7 +671,7 @@ function GameScreen({ players, settings, seq, idx, cards, roundIndex, doneCount,
     : trickOk ? (editing ? "Enregistrer la correction" : "Valider la manche") : `Encore ${free} pli${free > 1 ? "s" : ""} à attribuer`;
 
   return (
-    <motion.div {...fadeScreen} className="mx-auto max-w-[760px] px-4 pb-40">
+    <motion.div {...fadeScreen} className="mx-auto max-w-[760px] px-4 pb-40 lg:max-w-[1180px]">
       <TopBar>
         <div className="flex items-center gap-2">
           <div className="flex min-w-0 flex-1 items-baseline gap-1.5 min-[360px]:gap-2">
@@ -709,71 +721,77 @@ function GameScreen({ players, settings, seq, idx, cards, roundIndex, doneCount,
         </div>
       </TopBar>
 
-      <AnimatePresence mode="wait" initial={false}>
-        {phase === "bet" ? (
-          <motion.div key={`bet-${idx}`} {...phaseSlide(-1)} className="flex flex-col gap-2.5 pt-3.5">
-            <div className="flex items-center justify-between gap-2 px-1">
-              <span className="text-[15px] font-semibold tabular-nums">Paris : <b className="text-lg text-[#F2B544]">{betSum}</b> <span className="text-[#94A0B8]">/ {cards} pli{cards > 1 ? "s" : ""}</span></span>
-              <span className={`rounded-full px-2.5 py-1 text-[12.5px] font-bold ${mood[1]}`}>{mood[0]}</span>
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {players.map((p, i) => {
-                const e = entries[p.id];
-                const tag = i === dealerIdx ? "Donne" : i === starterIdx ? "Ouvre" : null;
-                return (
-                  <motion.div key={p.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0, transition: { delay: i * 0.04 } }}>
-                    <Panel className="p-2.5 pl-3 transition-colors" style={{ borderColor: isRascal && e.cannon ? "#8E2A40" : e.bet > 0 ? "#3A4A6B" : undefined, background: isRascal && e.cannon ? "#1A1220" : undefined }}>
-                     <div className="flex items-center gap-3">
-                      <Avatar player={p} size={40} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-x-1.5">
-                          <span className="max-w-full truncate text-[17px] font-extrabold">{p.name}</span>
-                          {tag && <DealTag tag={tag} />}
+      <div className="lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:items-start lg:gap-6">
+        <AnimatePresence mode="wait" initial={false}>
+          {phase === "bet" ? (
+            <motion.div key={`bet-${idx}`} {...phaseSlide(-1)} className="flex flex-col gap-2.5 pt-3.5">
+              <div className="flex items-center justify-between gap-2 px-1">
+                <span className="text-[15px] font-semibold tabular-nums">Paris : <b className="text-lg text-[#F2B544]">{betSum}</b> <span className="text-[#94A0B8]">/ {cards} pli{cards > 1 ? "s" : ""}</span></span>
+                <span className={`rounded-full px-2.5 py-1 text-[12.5px] font-bold ${mood[1]}`}>{mood[0]}</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {players.map((p, i) => {
+                  const e = entries[p.id];
+                  const tag = i === dealerIdx ? "Donne" : i === starterIdx ? "Ouvre" : null;
+                  return (
+                    <motion.div key={p.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0, transition: { delay: i * 0.04 } }}>
+                      <Panel className="p-2.5 pl-3 transition-colors" style={{ borderColor: isRascal && e.cannon ? "#8E2A40" : e.bet > 0 ? "#3A4A6B" : undefined, background: isRascal && e.cannon ? "#1A1220" : undefined }}>
+                       <div className="flex items-center gap-3">
+                        <Avatar player={p} size={40} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-x-1.5">
+                            <span className="max-w-full truncate text-[17px] font-extrabold">{p.name}</span>
+                            {tag && <DealTag tag={tag} />}
+                          </div>
+                          <div className="text-[13px] tabular-nums text-[#94A0B8]">{totals[p.id]} pts · {ord(rankOf[p.id])}</div>
                         </div>
-                        <div className="text-[13px] tabular-nums text-[#94A0B8]">{totals[p.id]} pts · {ord(rankOf[p.id])}</div>
-                      </div>
-                      <Stepper value={e.bet} who={`pari de ${p.name}`}
-                        onDec={() => setEntry(p.id, { bet: Math.max(0, e.bet - 1) })} onInc={() => setEntry(p.id, { bet: Math.min(cards, e.bet + 1) })}
-                        decDisabled={e.bet <= 0} incDisabled={e.bet >= cards} />
-                     </div>
-                     {isRascal && <ShotPicker p={p} cannon={e.cannon} cards={cards} onPick={(cannon) => setEntry(p.id, { cannon })} />}
-                    </Panel>
-                  </motion.div>
-                );
-              })}
-            </div>
-            <p className="m-0 px-1 text-center text-[13px] text-[#6F7C96]">{players[dealerIdx].name} distribue · {players[starterIdx].name} ouvre le premier pli</p>
-          </motion.div>
-        ) : (
-          <motion.div key={`tricks-${idx}`} {...phaseSlide(1)} className="flex flex-col gap-2.5 pt-3.5">
-            <div className="flex flex-col gap-1.5 px-1">
-              <div className="flex items-center justify-between">
-                <span className="text-[15px] font-semibold tabular-nums">Plis : <b className="text-lg" style={{ color: sumColor }}>{trickSum}</b> <span className="text-[#94A0B8]">/ {target}</span></span>
-                {target < cards && <span className="text-[12.5px] font-semibold text-[#5EEAD4]">{cards - target} pli{cards - target > 1 ? "s" : ""} perdu{cards - target > 1 ? "s" : ""} en mer</span>}
+                        <Stepper value={e.bet} who={`pari de ${p.name}`}
+                          onDec={() => setEntry(p.id, { bet: Math.max(0, e.bet - 1) })} onInc={() => setEntry(p.id, { bet: Math.min(cards, e.bet + 1) })}
+                          decDisabled={e.bet <= 0} incDisabled={e.bet >= cards} />
+                       </div>
+                       {isRascal && <ShotPicker p={p} cannon={e.cannon} cards={cards} onPick={(cannon) => setEntry(p.id, { cannon })} />}
+                      </Panel>
+                    </motion.div>
+                  );
+                })}
               </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-[#111A2C]">
-                <motion.div className="h-full rounded-full" animate={{ width: `${Math.min(100, (trickSum / Math.max(target, 1)) * 100)}%`, backgroundColor: sumColor }} />
-              </div>
-              {settings.leviathans && (
-                <div className="mt-1 grid grid-cols-2 gap-2">
-                  <LossChip emoji="🐙" label="Kraken" sub="1 pli détruit" on={lost.kraken} disabled={!lost.kraken && target <= 0}
-                    onToggle={() => setLost({ ...lost, kraken: !lost.kraken })} />
-                  <LossChip emoji="🐳" label="Baleine blanche" sub="1 pli défaussé" on={lost.whale} disabled={!lost.whale && target <= 0}
-                    onToggle={() => setLost({ ...lost, whale: !lost.whale })} />
+              <p className="m-0 px-1 text-center text-[13px] text-[#6F7C96]">{players[dealerIdx].name} distribue · {players[starterIdx].name} ouvre le premier pli</p>
+            </motion.div>
+          ) : (
+            <motion.div key={`tricks-${idx}`} {...phaseSlide(1)} className="flex flex-col gap-2.5 pt-3.5">
+              <div className="flex flex-col gap-1.5 px-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[15px] font-semibold tabular-nums">Plis : <b className="text-lg" style={{ color: sumColor }}>{trickSum}</b> <span className="text-[#94A0B8]">/ {target}</span></span>
+                  {target < cards && <span className="text-[12.5px] font-semibold text-[#5EEAD4]">{cards - target} pli{cards - target > 1 ? "s" : ""} perdu{cards - target > 1 ? "s" : ""} en mer</span>}
                 </div>
-              )}
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {players.map((p, i) => (
-                <TrickRow key={p.id} i={i} p={p} e={entries[p.id]} tag={i === dealerIdx ? "Donne" : i === starterIdx ? "Ouvre" : null} cards={cards} settings={settings} total={totals[p.id]} free={free} complete={trickOk}
-                  harryElsewhere={players.find((q) => q.id !== p.id && hasHarry(entries[q.id]))?.name}
-                  onBonus={() => onBonus(p.id)} setEntry={(patch) => setEntry(p.id, patch)} onHarry={(v) => setHarry(p.id, v)} />
-              ))}
-            </div>
-            <p className="m-0 px-1 text-center text-[13px] text-[#6F7C96]">{players[starterIdx].name} a ouvert le premier pli</p>
-          </motion.div>
-        )}
-      </AnimatePresence>
+                <div className="h-1.5 overflow-hidden rounded-full bg-[#111A2C]">
+                  <motion.div className="h-full rounded-full" animate={{ width: `${Math.min(100, (trickSum / Math.max(target, 1)) * 100)}%`, backgroundColor: sumColor }} />
+                </div>
+                {settings.leviathans && (
+                  <div className="mt-1 grid grid-cols-2 gap-2">
+                    <LossChip emoji="🐙" label="Kraken" sub="1 pli détruit" on={lost.kraken} disabled={!lost.kraken && target <= 0}
+                      onToggle={() => setLost({ ...lost, kraken: !lost.kraken })} />
+                    <LossChip emoji="🐳" label="Baleine blanche" sub="1 pli défaussé" on={lost.whale} disabled={!lost.whale && target <= 0}
+                      onToggle={() => setLost({ ...lost, whale: !lost.whale })} />
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {players.map((p, i) => (
+                  <TrickRow key={p.id} i={i} p={p} e={entries[p.id]} tag={i === dealerIdx ? "Donne" : i === starterIdx ? "Ouvre" : null} cards={cards} settings={settings} total={totals[p.id]} free={free} complete={trickOk}
+                    harryElsewhere={players.find((q) => q.id !== p.id && hasHarry(entries[q.id]))?.name}
+                    onBonus={() => onBonus(p.id)} setEntry={(patch) => setEntry(p.id, patch)} onHarry={(v) => setHarry(p.id, v)} />
+                ))}
+              </div>
+              <p className="m-0 px-1 text-center text-[13px] text-[#6F7C96]">{players[starterIdx].name} a ouvert le premier pli</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <Panel className="sticky top-48 mt-3.5 hidden flex-col gap-2.5 p-3.5 lg:flex">
+          <Title className="m-0 text-[24px]">Cap des scores</Title>
+          <ScoreChart players={players} results={results} roundCount={seq.length} colors={COLORS} />
+        </Panel>
+      </div>
 
       <BottomBar>
         {phase === "bet" ? (
@@ -1083,21 +1101,8 @@ function BoardScreen({ players, settings, seq, results, ranking, hits, totals, f
   const last = results[results.length - 1];
   const medal = { 1: "bg-[#F2B544] text-[#1B1204]", 2: "bg-[#C9D2E3] text-[#141B2A]", 3: "bg-[#C27A43] text-[#1B0F05]" };
 
-  const W = 600, H = 200, padT = 12, padB = 12;
-  const cum = Object.fromEntries(players.map((p) => [p.id, [0]]));
-  results.forEach((r) => players.forEach((p) => { const a = cum[p.id]; a.push(a[a.length - 1] + r.res[p.id].total); }));
-  const all = Object.values(cum).flat();
-  const minY = Math.min(0, ...all);
-  let maxY = Math.max(...all);
-  if (maxY - minY < 50) maxY = minY + 50;
-  const y = (v) => padT + ((maxY - v) / (maxY - minY)) * (H - padT - padB);
-  const x = (i) => (i / Math.max(seq.length, 1)) * W;
-  const step = Math.max(50, Math.ceil((maxY - minY) / 4 / 50) * 50);
-  const grid = [];
-  for (let g = Math.ceil(minY / step) * step; g <= maxY; g += step) grid.push(g);
-
   return (
-    <motion.div {...fadeScreen} className="mx-auto flex max-w-[760px] flex-col gap-4 px-4 pb-32">
+    <motion.div {...fadeScreen} className="mx-auto flex max-w-[760px] flex-col gap-4 px-4 pb-32 lg:max-w-[1180px]">
       <TopBar>
         <div className="flex items-center gap-2">
           <Ghost onClick={onBack} aria-label="Retour" className="grid h-11 w-11 flex-none place-items-center"><ChevronLeft size={22} /></Ghost>
@@ -1130,6 +1135,7 @@ function BoardScreen({ players, settings, seq, results, ranking, hits, totals, f
         })}
       </ol>
 
+      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:items-start">
       <Panel className="overflow-hidden">
         <button onClick={() => setShowTable((v) => !v)} aria-expanded={showTable} className={`flex min-h-14 w-full items-center justify-between px-3.5 ${FOCUS}`}>
           <Title as="span" className="text-[24px]">Manche par manche</Title>
@@ -1177,25 +1183,11 @@ function BoardScreen({ players, settings, seq, results, ranking, hits, totals, f
         </AnimatePresence>
       </Panel>
 
-      <Panel className="flex flex-col gap-2.5 p-3.5">
+      <Panel className="flex flex-col gap-2.5 p-3.5 lg:sticky lg:top-24">
         <Title className="m-0 text-[24px]">Cap des scores</Title>
-        <div className="flex flex-wrap gap-x-3 gap-y-1">
-          {players.map((p) => <span key={p.id} className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-[#C3CCDD]"><span className="h-1 w-3 rounded" style={{ background: COLORS[p.color] }} />{p.name}</span>)}
-        </div>
-        <div className="relative h-[200px]">
-          <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="Évolution des scores cumulés par manche" className="block">
-            {grid.map((g) => <line key={g} x1={0} x2={W} y1={y(g)} y2={y(g)} stroke={g === 0 ? "#3A4A6B" : "#1A2540"} strokeDasharray={g === 0 ? "0" : "4 6"} vectorEffect="non-scaling-stroke" />)}
-            {players.map((p) => (
-              <motion.polyline key={p.id} fill="none" stroke={COLORS[p.color]} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke"
-                points={cum[p.id].map((v, i) => `${x(i)},${y(v)}`).join(" ")} initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease: "easeOut" }} />
-            ))}
-          </svg>
-          {grid.map((g) => <span key={g} className="absolute left-1 -translate-y-full text-[11px] tabular-nums text-[#6F7C96]" style={{ top: `${(y(g) / H) * 100}%` }}>{g}</span>)}
-        </div>
-        <div className="flex justify-between">
-          {[0, ...seq.map((_, i) => i + 1)].map((n) => <span key={n} className="w-4 text-center text-[11px] tabular-nums text-[#6F7C96]">{n}</span>)}
-        </div>
+        <ScoreChart players={players} results={results} roundCount={seq.length} colors={COLORS} />
       </Panel>
+      </div>
 
       <BottomBar>
         <CTA onClick={onBack} className="h-14 w-full text-[17px]"><ChevronLeft size={20} strokeWidth={2.6} /> {finished ? "Retour au podium" : "Retour à la manche"}</CTA>
